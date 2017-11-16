@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 
+
+
 def info(variable):
     print(type(variable))
     if isinstance(variable, np.ndarray):
