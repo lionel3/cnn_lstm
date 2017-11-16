@@ -1,0 +1,171 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.9~svn20110310	//
+CholecDataset	../cnn.py	/^class CholecDataset(Dataset):$/;"	kind:class	line:28
+CholecDataset	../cnn_lstm.py	/^class CholecDataset(Dataset):$/;"	kind:class	line:31
+CholecDataset	../lstm.py	/^class CholecDataset(Dataset):$/;"	kind:class	line:31
+CholecDataset	../lstm_fc.py	/^class CholecDataset(Dataset):$/;"	kind:class	line:34
+CholecDataset	../multi_cnn.py	/^class CholecDataset(Dataset):$/;"	kind:class	line:34
+RNN	../rnn.py	/^class RNN(nn.Module):$/;"	kind:class	line:74
+__getitem__	../cnn.py	/^    def __getitem__(self, index):$/;"	kind:member	line:39
+__getitem__	../cnn_lstm.py	/^    def __getitem__(self, index):$/;"	kind:member	line:41
+__getitem__	../lstm.py	/^    def __getitem__(self, index):$/;"	kind:member	line:41
+__getitem__	../lstm_fc.py	/^    def __getitem__(self, index):$/;"	kind:member	line:44
+__getitem__	../multi_cnn.py	/^    def __getitem__(self, index):$/;"	kind:member	line:44
+__init__	../cnn.py	/^    def __init__(self, file_paths, file_labels, transform=None,$/;"	kind:member	line:29
+__init__	../cnn_lstm.py	/^    def __init__(self):$/;"	kind:member	line:61
+__init__	../cnn_lstm.py	/^    def __init__(self, file_paths, file_labels, transform=None,$/;"	kind:member	line:32
+__init__	../lstm.py	/^    def __init__(self):$/;"	kind:member	line:59
+__init__	../lstm.py	/^    def __init__(self, file_paths, file_labels, transform=None,$/;"	kind:member	line:32
+__init__	../lstm_fc.py	/^    def __init__(self):$/;"	kind:member	line:67
+__init__	../lstm_fc.py	/^    def __init__(self, file_paths, file_labels, transform=None,$/;"	kind:member	line:35
+__init__	../multi_cnn.py	/^    def __init__(self):$/;"	kind:member	line:67
+__init__	../multi_cnn.py	/^    def __init__(self, file_paths, file_labels, transform=None,$/;"	kind:member	line:35
+__init__	../rnn.py	/^    def __init__(self, input_size, hidden_size, output_size):$/;"	kind:member	line:75
+__len__	../cnn.py	/^    def __len__(self):$/;"	kind:member	line:49
+__len__	../cnn_lstm.py	/^    def __len__(self):$/;"	kind:member	line:51
+__len__	../lstm.py	/^    def __len__(self):$/;"	kind:member	line:51
+__len__	../lstm_fc.py	/^    def __len__(self):$/;"	kind:member	line:54
+__len__	../multi_cnn.py	/^    def __len__(self):$/;"	kind:member	line:54
+all_categories	../rnn.py	/^all_categories = []$/;"	kind:variable	line:43
+all_info	../get_paths_labels.py	/^    all_info = pickle.load(f)$/;"	kind:variable	line:103
+all_info_all	../get_paths_labels.py	/^all_info_all = []$/;"	kind:variable	line:61
+all_letters	../rnn.py	/^all_letters = string.ascii_letters + " .,;'"$/;"	kind:variable	line:29
+all_losses	../rnn.py	/^all_losses = []$/;"	kind:variable	line:164
+category	../rnn.py	/^    category = filename.split('\/')[-1].split('.')[0]$/;"	kind:variable	line:50
+category_from_output	../rnn.py	/^def category_from_output(output):$/;"	kind:function	line:107
+category_lines	../rnn.py	/^category_lines = {}$/;"	kind:variable	line:42
+cnn.py	../cnn.py	1;"	kind:file	line:1
+cnn_lstm.py	../cnn_lstm.py	1;"	kind:file	line:1
+criterion	../rnn.py	/^criterion = nn.NLLLoss()$/;"	kind:variable	line:129
+current_loss	../rnn.py	/^        current_loss = 0$/;"	kind:variable	line:193
+current_loss	../rnn.py	/^current_loss = 0$/;"	kind:variable	line:163
+find_files	../rnn.py	/^def find_files(path):$/;"	kind:function	line:22
+forward	../cnn_lstm.py	/^    def forward(self, x):$/;"	kind:member	line:95
+forward	../lstm.py	/^    def forward(self, x):$/;"	kind:member	line:93
+forward	../lstm_fc.py	/^    def forward(self, x):$/;"	kind:member	line:102
+forward	../multi_cnn.py	/^    def forward(self, x):$/;"	kind:member	line:85
+forward	../rnn.py	/^    def forward(self, input, hidden):$/;"	kind:member	line:82
+get_data	../cnn.py	/^def get_data(data_path):$/;"	kind:function	line:52
+get_data	../cnn_lstm.py	/^def get_data(data_path):$/;"	kind:function	line:133
+get_data	../lstm.py	/^def get_data(data_path):$/;"	kind:function	line:110
+get_data	../lstm_fc.py	/^def get_data(data_path):$/;"	kind:function	line:143
+get_data	../multi_cnn.py	/^def get_data(data_path):$/;"	kind:function	line:103
+get_dirs	../get_paths_labels.py	/^def get_dirs(root_dir):$/;"	kind:function	line:16
+get_files	../get_paths_labels.py	/^def get_files(root_dir):$/;"	kind:function	line:29
+get_paths_labels.py	../get_paths_labels.py	1;"	kind:file	line:1
+get_useful_start_idx	../cnn_lstm.py	/^def get_useful_start_idx(sequence_length, list_each_length):$/;"	kind:function	line:125
+get_useful_start_idx	../lstm_fc.py	/^def get_useful_start_idx(sequence_length, list_each_length):$/;"	kind:function	line:133
+get_useful_start_idx	../multi_cnn.py	/^def get_useful_start_idx(sequence_length, list_each_length):$/;"	kind:function	line:93
+hidden	../rnn.py	/^hidden = Variable(torch.zeros(1, n_hidden))$/;"	kind:variable	line:102
+hidden	../rnn.py	/^hidden = Variable(torch.zeros(1, n_hidden))$/;"	kind:variable	line:97
+img_dir	../get_paths_labels.py	/^img_dir = os.path.join(root_dir, 'data_resize')$/;"	kind:variable	line:6
+img_file_each_path	../get_paths_labels.py	/^            img_file_each_path = os.path.join(img_dir_paths[j], img_dir_names[j] + '-' + str(tool_count - 1) + '.jpg')$/;"	kind:variable	line:76
+info	../rnn.py	/^def info(variable):$/;"	kind:function	line:4
+info_all	../get_paths_labels.py	/^    info_all = []$/;"	kind:variable	line:70
+info_each	../get_paths_labels.py	/^            info_each = []$/;"	kind:variable	line:75
+initHidden	../rnn.py	/^    def initHidden(self):$/;"	kind:member	line:89
+init_hidden	../cnn_lstm.py	/^    def init_hidden(self, hidden_batch_size = 1):$/;"	kind:member	line:87
+init_hidden	../lstm.py	/^    def init_hidden(self, hidden_batch_size = 1):$/;"	kind:member	line:85
+init_hidden	../lstm_fc.py	/^    def init_hidden(self, hidden_batch_size=1):$/;"	kind:member	line:94
+input	../rnn.py	/^input = Variable(letter_to_tensor('A'))$/;"	kind:variable	line:96
+input	../rnn.py	/^input = Variable(line_to_tensor('Albert'))$/;"	kind:variable	line:101
+last_phase_index	../get_paths_labels.py	/^            last_phase_index = phase_split[0]$/;"	kind:variable	line:88
+last_phase_index	../get_paths_labels.py	/^    last_phase_index = ''$/;"	kind:variable	line:65
+last_tool_index	../get_paths_labels.py	/^                last_tool_index = tool_split[0]$/;"	kind:variable	line:80
+last_tool_index	../get_paths_labels.py	/^    last_tool_index = ''$/;"	kind:variable	line:64
+learning_rate	../rnn.py	/^learning_rate = 0.005$/;"	kind:variable	line:130
+letter_to_index	../rnn.py	/^def letter_to_index(letter):$/;"	kind:function	line:57
+letter_to_tensor	../rnn.py	/^def letter_to_tensor(letter):$/;"	kind:function	line:60
+line_to_tensor	../rnn.py	/^def line_to_tensor(line):$/;"	kind:function	line:65
+lines	../rnn.py	/^    lines = read_lines(filename)$/;"	kind:variable	line:52
+lstm.py	../lstm.py	1;"	kind:file	line:1
+lstm_fc.py	../lstm_fc.py	1;"	kind:file	line:1
+lstm_in_dim	../cnn_lstm.py	/^lstm_in_dim = 2048$/;"	kind:variable	line:58
+lstm_in_dim	../lstm.py	/^lstm_in_dim = 2048$/;"	kind:variable	line:56
+lstm_in_dim	../lstm_fc.py	/^lstm_in_dim = 2048$/;"	kind:variable	line:62
+lstm_in_dim	../multi_cnn.py	/^lstm_in_dim = 2048$/;"	kind:variable	line:62
+main	../cnn.py	/^def main():$/;"	kind:function	line:167
+main	../cnn_lstm.py	/^def main():$/;"	kind:function	line:435
+main	../lstm.py	/^def main():$/;"	kind:function	line:271
+main	../lstm_fc.py	/^def main():$/;"	kind:function	line:448
+main	../multi_cnn.py	/^def main():$/;"	kind:function	line:411
+multi_cnn.py	../multi_cnn.py	1;"	kind:file	line:1
+my_resnet	../cnn_lstm.py	/^class my_resnet(torch.nn.Module):$/;"	kind:class	line:60
+my_resnet	../lstm.py	/^class my_resnet(torch.nn.Module):$/;"	kind:class	line:58
+my_resnet	../lstm_fc.py	/^class my_resnet(torch.nn.Module):$/;"	kind:class	line:66
+my_resnet	../multi_cnn.py	/^class my_resnet(torch.nn.Module):$/;"	kind:class	line:66
+n_categories	../rnn.py	/^n_categories = len(all_categories)$/;"	kind:variable	line:55
+n_hidden	../rnn.py	/^n_hidden = 128$/;"	kind:variable	line:92
+n_iters	../rnn.py	/^n_iters = 100000$/;"	kind:variable	line:156
+n_letters	../rnn.py	/^n_letters = len(all_letters)$/;"	kind:variable	line:30
+num_gpu	../cnn_lstm.py	/^num_gpu = torch.cuda.device_count()$/;"	kind:variable	line:23
+num_gpu	../lstm.py	/^num_gpu = torch.cuda.device_count()$/;"	kind:variable	line:23
+num_gpu	../lstm_fc.py	/^num_gpu = torch.cuda.device_count()$/;"	kind:variable	line:24
+num_gpu	../multi_cnn.py	/^num_gpu = torch.cuda.device_count()$/;"	kind:variable	line:24
+optimizer_choice	../cnn_lstm.py	/^optimizer_choice = 0   # 0 for SGD, 1 for Adam89$/;"	kind:variable	line:59
+optimizer_choice	../lstm_fc.py	/^optimizer_choice = 0  # 0 for SGD, 1 for Adam89$/;"	kind:variable	line:63
+optimizer_choice	../multi_cnn.py	/^optimizer_choice = 1  # 0 for SGD, 1 for Adam89$/;"	kind:variable	line:63
+phase_count	../get_paths_labels.py	/^    phase_count = 0$/;"	kind:variable	line:69
+phase_dict	../get_paths_labels.py	/^phase_dict = {}$/;"	kind:variable	line:46
+phase_dict_key	../get_paths_labels.py	/^phase_dict_key = ['Preparation', 'CalotTriangleDissection', 'ClippingCutting', 'GallbladderDissection',$/;"	kind:variable	line:47
+phase_dir	../get_paths_labels.py	/^phase_dir = os.path.join(root_dir, 'phase_annotations')$/;"	kind:variable	line:8
+phase_file	../get_paths_labels.py	/^    phase_file = open(phase_file_paths[j])$/;"	kind:variable	line:67
+phase_split	../get_paths_labels.py	/^            phase_split = phase_line.split()$/;"	kind:variable	line:85
+pil_loader	../cnn.py	/^def pil_loader(path):$/;"	kind:function	line:23
+pil_loader	../cnn_lstm.py	/^def pil_loader(path):$/;"	kind:function	line:26
+pil_loader	../lstm.py	/^def pil_loader(path):$/;"	kind:function	line:26
+pil_loader	../lstm_fc.py	/^def pil_loader(path):$/;"	kind:function	line:28
+pil_loader	../multi_cnn.py	/^def pil_loader(path):$/;"	kind:function	line:28
+plot_every	../rnn.py	/^plot_every = 1000$/;"	kind:variable	line:158
+print_every	../rnn.py	/^print_every = 5000$/;"	kind:variable	line:157
+random_choice	../rnn.py	/^def random_choice(l):$/;"	kind:function	line:116
+random_training_example	../rnn.py	/^def random_training_example():$/;"	kind:function	line:118
+read_lines	../rnn.py	/^def read_lines(filename):$/;"	kind:function	line:45
+rnn	../rnn.py	/^rnn = RNN(n_letters, n_hidden, n_categories)$/;"	kind:variable	line:94
+rnn.py	../rnn.py	1;"	kind:file	line:1
+root_dir	../get_paths_labels.py	/^root_dir = '\/data\/lhx\/cholec'$/;"	kind:variable	line:5
+sequence_length	../cnn_lstm.py	/^sequence_length = 4$/;"	kind:variable	line:55
+sequence_length	../lstm.py	/^sequence_length = 3$/;"	kind:variable	line:54
+sequence_length	../lstm_fc.py	/^sequence_length = 4$/;"	kind:variable	line:59
+sequence_length	../multi_cnn.py	/^sequence_length = 4$/;"	kind:variable	line:59
+start	../rnn.py	/^start = time.time()$/;"	kind:variable	line:173
+test_file_paths	../get_paths_labels.py	/^test_file_paths = []$/;"	kind:variable	line:106
+test_labels	../get_paths_labels.py	/^test_labels = []$/;"	kind:variable	line:110
+test_model	../cnn.py	/^def test_model(test_dataset):$/;"	kind:function	line:132
+test_model	../lstm.py	/^def test_model(test_dataset):$/;"	kind:function	line:236
+test_num_each	../get_paths_labels.py	/^test_num_each = []$/;"	kind:variable	line:114
+timeSince	../rnn.py	/^def timeSince(since):$/;"	kind:function	line:166
+tool_count	../get_paths_labels.py	/^    tool_count = 0$/;"	kind:variable	line:68
+tool_dir	../get_paths_labels.py	/^tool_dir = os.path.join(root_dir, 'tool_annotations')$/;"	kind:variable	line:7
+tool_file	../get_paths_labels.py	/^    tool_file = open(tool_file_paths[j])$/;"	kind:variable	line:66
+tool_split	../get_paths_labels.py	/^            tool_split = tool_line.split()$/;"	kind:variable	line:74
+train	../rnn.py	/^def train(category_tensor, line_tensor):$/;"	kind:function	line:131
+train_batch_size	../cnn_lstm.py	/^train_batch_size = 60$/;"	kind:variable	line:56
+train_batch_size	../lstm.py	/^train_batch_size = 90$/;"	kind:variable	line:55
+train_batch_size	../lstm_fc.py	/^train_batch_size = 60$/;"	kind:variable	line:60
+train_batch_size	../multi_cnn.py	/^train_batch_size = 60$/;"	kind:variable	line:60
+train_file_paths	../get_paths_labels.py	/^train_file_paths = []$/;"	kind:variable	line:105
+train_labels	../get_paths_labels.py	/^train_labels = []$/;"	kind:variable	line:109
+train_model	../cnn.py	/^def train_model(train_dataset):$/;"	kind:function	line:80
+train_model	../cnn_lstm.py	/^def train_model(train_dataset, train_num_each, val_dataset, val_num_each):$/;"	kind:function	line:189
+train_model	../lstm.py	/^def train_model(train_dataset):$/;"	kind:function	line:137
+train_model	../lstm_fc.py	/^def train_model(train_dataset, train_num_each, val_dataset, val_num_each):$/;"	kind:function	line:199
+train_model	../multi_cnn.py	/^def train_model(train_dataset, train_num_each, val_dataset, val_num_each):$/;"	kind:function	line:159
+train_num_each	../get_paths_labels.py	/^train_num_each = []$/;"	kind:variable	line:112
+train_val_test_paths_labels	../get_paths_labels.py	/^train_val_test_paths_labels = []$/;"	kind:variable	line:148
+unicodeToAscii	../rnn.py	/^def unicodeToAscii(s):$/;"	kind:function	line:33
+use_gpu	../cnn.py	/^use_gpu = torch.cuda.is_available()$/;"	kind:variable	line:21
+use_gpu	../cnn_lstm.py	/^use_gpu = torch.cuda.is_available()$/;"	kind:variable	line:24
+use_gpu	../lstm.py	/^use_gpu = torch.cuda.is_available()$/;"	kind:variable	line:24
+use_gpu	../lstm_fc.py	/^use_gpu = torch.cuda.is_available()$/;"	kind:variable	line:25
+use_gpu	../multi_cnn.py	/^use_gpu = torch.cuda.is_available()$/;"	kind:variable	line:25
+val_batch_size	../cnn_lstm.py	/^val_batch_size = 60$/;"	kind:variable	line:57
+val_batch_size	../lstm_fc.py	/^val_batch_size = 60$/;"	kind:variable	line:61
+val_batch_size	../multi_cnn.py	/^val_batch_size = 60$/;"	kind:variable	line:61
+val_file_paths	../get_paths_labels.py	/^val_file_paths = []$/;"	kind:variable	line:107
+val_labels	../get_paths_labels.py	/^val_labels = []$/;"	kind:variable	line:108
+val_num_each	../get_paths_labels.py	/^val_num_each = []$/;"	kind:variable	line:113
