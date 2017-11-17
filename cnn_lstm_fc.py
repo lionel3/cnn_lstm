@@ -60,6 +60,7 @@ sequence_length = 4
 train_batch_size = 60
 val_batch_size = 60
 lstm_in_dim = 2048
+lstm_out_dim = 512
 optimizer_choice = 0  # 0 for SGD, 1 for Adam89
 
 
@@ -80,13 +81,15 @@ class my_resnet(torch.nn.Module):
         # self.task_1 = nn.Sequential()
         # self.task_1.add_module("lstm", nn.LSTM(lstm_in_dim, 7))
         # self.fc = nn.Linear(2048, lstm_in_dim)
-        self.lstm = nn.LSTM(lstm_in_dim, 7)
+        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim)
+
         self.hidden = self.init_hidden()
         # print(len(self.lstm.all_weights))
         # print(len(self.lstm.all_weights[0]))
-
+        self.fc = nn.Linear(lstm_out_dim, 7)
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
+        init.xavier_normal(self.fc.parameters())
         # self.count = 0
         # 多GPU时候.这种赋值方式不成功, 所以尽量取能整除的batch
         # self.forward_batch_size = 0
@@ -126,7 +129,10 @@ class my_resnet(torch.nn.Module):
         # 结果什么意思,我为什么遇到原来的错误??? 以后一定切记留下错误的代码作比对
         # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
         # y = y.view((train_batch_size, 7))
-
+        y = y.contiguous().view(num_gpu, sequence_length, -1, lstm_out_dim)
+        y = y.permute(0, 2, 1, 3)
+        y = y.contiguous().view((train_batch_size, lstm_out_dim))
+        y = self.fc(y)
         return y
 
 
@@ -334,9 +340,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(outputs.size())
             # print(outputs.data[0])
             # print(labels.data[0])
-            outputs = outputs.contiguous().view(num_gpu, sequence_length, -1, 7)
-            outputs = outputs.permute(0, 2, 1, 3)
-            outputs = outputs.contiguous().view((train_batch_size, 7))
+        
 
             # print(labels.size())
             # print(outputs.size())
