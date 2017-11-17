@@ -389,9 +389,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             outputs = model.forward(inputs)
 
-            outputs = outputs.contiguous().view(num_gpu, sequence_length, -1, 7)
-            outputs = outputs.permute(0, 2, 1, 3)
-            outputs = outputs.contiguous().view((val_batch_size, 7))
+            # outputs = outputs.contiguous().view(num_gpu, sequence_length, -1, 7)
+            # outputs = outputs.permute(0, 2, 1, 3)
+            # outputs = outputs.contiguous().view((val_batch_size, 7))
 
             _, preds = torch.max(outputs.data, 1)
 
