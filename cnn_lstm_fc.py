@@ -87,22 +87,27 @@ class my_resnet(torch.nn.Module):
         # print(len(self.lstm.all_weights))
         # print(len(self.lstm.all_weights[0]))
         self.fc = nn.Linear(lstm_out_dim, 7)
+
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
-        init.xavier_normal(self.fc.parameters())
+        # init.xavier_normal(self.fc.parameters())
         # self.count = 0
         # 多GPU时候.这种赋值方式不成功, 所以尽量取能整除的batch
         # self.forward_batch_size = 0
 
     def init_hidden(self, hidden_batch_size=1):
         if use_gpu:
-            return (Variable(torch.zeros(1, hidden_batch_size, 7).cuda()),
-                    Variable(torch.zeros(1, hidden_batch_size, 7).cuda()))
+            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()),
+                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()))
         else:
-            return (Variable(torch.zeros(1, hidden_batch_size, 7)),
-                    Variable(torch.zeros(1, hidden_batch_size, 7)))
+            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)),
+                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)))
 
     def forward(self, x):
+
+
+
+
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         # x = self.fc(x)
@@ -132,6 +137,7 @@ class my_resnet(torch.nn.Module):
         y = y.contiguous().view(num_gpu, sequence_length, -1, lstm_out_dim)
         y = y.permute(0, 2, 1, 3)
         y = y.contiguous().view((train_batch_size, lstm_out_dim))
+        # print(y.size())
         y = self.fc(y)
         return y
 
