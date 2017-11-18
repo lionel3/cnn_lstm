@@ -104,10 +104,6 @@ class my_resnet(torch.nn.Module):
                     Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)))
 
     def forward(self, x):
-
-
-
-
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         # x = self.fc(x)
@@ -298,13 +294,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     if use_gpu:
         model = model.cuda()
     model = DataParallel(model)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(size_average=False)
     # 要先将model转换到cuda, 再提供optimizer
     # for parameter in model.parameters():
     #     print(parameter)
     if optimizer_choice == 0:
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-        exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+        optimizer = optim.SGD(model.parameters(),lr=0.001, momentum=0.9)
+        # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+        exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         # exp_scheduler = ReduceLROnPlateau(optimizer, 'min') val loss 调用 expscheduler.step(loss)
     elif optimizer_choice == 1:
         optimizer = optim.Adam(model.parameters())
@@ -316,8 +313,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     epoches = 25
     for epoch in range(epoches):
         model.train()
-        if optimizer_choice == 0:
-            exp_lr_scheduler.step()
+        # if optimizer_choice == 0:
+        #     exp_lr_scheduler.step()
         train_loss = 0.0
         train_corrects = 0
         train_start_time = time.time()
@@ -362,9 +359,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(train_corrects)
         train_elapsed_time = time.time() - train_start_time
         train_accuracy = train_corrects / num_train_all
-
-        print('epoch: {:4d} train completed in: {:.0f}m{:.0f}s accuracy {:.4f}'.format(epoch, train_elapsed_time // 60,
+        train_average_loss = train_loss / num_train
+        print('epoch: {:4d} train completed in: {:.0f}m{:.0f}s loss: {:4.4f} accuracy: {:.4f}'.format(epoch, train_elapsed_time // 60,
                                                                                        train_elapsed_time % 60,
+                                                                                       train_average_loss,
                                                                                        train_accuracy))
 
         # train_average_loss = train_loss / num_train
@@ -401,12 +399,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(val_corrects)
         val_elapsed_time = time.time() - val_start_time
         val_accuracy = val_corrects / num_val_all
-
-        print('epoch: {:4d} val completed in: {:.0f}m{:.0f}s accuracy {:.4f}'.format(epoch, val_elapsed_time // 60,
+        val_average_loss = val_loss / num_val
+        print('epoch: {:4d} val completed in: {:.0f}m{:.0f}s loss: {:4.4f} accuracy {:.4f}'.format(epoch, val_elapsed_time // 60,
                                                                                      val_elapsed_time % 60,
+                                                                                     val_average_loss,
                                                                                      val_accuracy))
         # print('accuracy', val_accuracy)
-
+        exp_lr_scheduler.step(val_average_loss)
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
             correspond_train_acc = train_accuracy
@@ -415,8 +414,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             if train_accuracy > correspond_train_acc:
                 correspond_train_acc = train_accuracy
                 best_model_wts = model.state_dict()
+
+    print('best accuracy: {:.4f} cor train accu: {.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171116_epoch_25_cnn_lstm.pth')
+    torch.save(model, '20171118_epoch_25_cnn_lstm_fc_length_4_sgd_.pth')
     print()
 
 
