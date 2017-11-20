@@ -57,11 +57,10 @@ class CholecDataset(Dataset):
 # batch_size 要整除gpu个数 以及sequence长度
 sequence_length = 4
 train_batch_size = 100
-val_batch_size = 4
+val_batch_size = 8
 lstm_in_dim = 2048
 lstm_out_dim = 512
-optimizer_choice = 1  # 0 for SGD, 1 for Adam89
-
+optimizer_choice = 0  # 0 for SGD, 1 for Adam89
 
 class my_resnet(torch.nn.Module):
     def __init__(self):
@@ -136,7 +135,6 @@ class my_resnet(torch.nn.Module):
         y = self.fc(y)
         return y
 
-
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
     idx = []
@@ -206,32 +204,32 @@ def get_data(data_path):
 def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train = len(train_dataset)
     num_val = len(val_dataset)
-    print(num_train)
+    print('num of train:', num_train)
     train_count = 0
     for i in range(len(train_num_each)):
         train_count += train_num_each[i]
-    print(train_count)
-    print(num_val)
+    print('vertify num of train:', train_count)
+    print('num of valid:', num_val)
     val_count = 0
     for i in range(len(val_num_each)):
         val_count += val_num_each[i]
-    print(val_count)
+    print('vertify num of valid:',val_count)
 
     train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
 
     val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
-    print(len(train_useful_start_idx))
-    print(train_useful_start_idx[-1])
+    print('num of useful train start idx:', len(train_useful_start_idx))
+    print('the last idx of train start idx:',train_useful_start_idx[-1])
 
-    print(len(val_useful_start_idx))
-    print(val_useful_start_idx[-1])
+    print('num of useful valid start idx:', len(val_useful_start_idx))
+    print('the last idx of train start idx:', val_useful_start_idx[-1])
 
     num_train_we_use = len(train_useful_start_idx) // (train_batch_size // sequence_length) * (
-    train_batch_size // sequence_length)
+        train_batch_size // sequence_length)
     num_val_we_use = len(val_useful_start_idx) // (train_batch_size // sequence_length) * (
-    train_batch_size // sequence_length)
-    # num_train_we_use = 4000
-    # num_val_we_use = 800
+        train_batch_size // sequence_length)
+    # num_train_we_use = 800
+    # num_val_we_use = 80
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
@@ -258,15 +256,15 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
     print('num of trainset:', num_train)
-    print('num of samples we use:', num_train_we_use)
-    print('num of all samples:', num_train_all)
+    print('num of train samples we use:', num_train_we_use)
+    print('num of all train samples:', num_train_all)
     print('train batch size:', train_batch_size)
     print('sequence length:', sequence_length)
     print('num of gpu:', num_gpu)
 
     print('num of valset:', num_val)
-    print('num of samples we use:', num_val_we_use)
-    print('num of all samples:', num_val_all)
+    print('num of val samples we use:', num_val_we_use)
+    print('num of all val samples:', num_val_all)
 
     train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_idx)
     train_loader = DataLoader(
@@ -311,7 +309,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     epoches = 25
     for epoch in range(epoches):
-        model.train()   
+       
+        model.train()
         # if optimizer_choice == 0:
             # exp_lr_scheduler.step()
         train_loss = 0.0
@@ -342,8 +341,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(outputs.size())
             # print(outputs.data[0])
             # print(labels.data[0])
-        
-
             # print(labels.size())
             # print(outputs.size())
             _, preds = torch.max(outputs.data, 1)
@@ -359,7 +356,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_elapsed_time = time.time() - train_start_time
         train_accuracy = train_corrects / num_train_all
         train_average_loss = train_loss / num_train
-
 
         # train_average_loss = train_loss / num_train
         # print('accuracy', train_accuracy)
