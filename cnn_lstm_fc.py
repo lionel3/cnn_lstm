@@ -15,8 +15,8 @@ import os
 from PIL import Image
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-import time
 
+import time
 import pickle
 import numpy as np
 
@@ -29,7 +29,6 @@ def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
-
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -57,11 +56,11 @@ class CholecDataset(Dataset):
 
 # batch_size 要整除gpu个数 以及sequence长度
 sequence_length = 4
-train_batch_size = 60
-val_batch_size = 60
+train_batch_size = 100
+val_batch_size = 4
 lstm_in_dim = 2048
 lstm_out_dim = 512
-optimizer_choice = 0  # 0 for SGD, 1 for Adam89
+optimizer_choice = 1  # 0 for SGD, 1 for Adam89
 
 
 class my_resnet(torch.nn.Module):
@@ -130,9 +129,9 @@ class my_resnet(torch.nn.Module):
         # 结果什么意思,我为什么遇到原来的错误??? 以后一定切记留下错误的代码作比对
         # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
         # y = y.view((train_batch_size, 7))
-        y = y.contiguous().view(num_gpu, sequence_length, -1, lstm_out_dim)
+        y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
         y = y.permute(0, 2, 1, 3)
-        y = y.contiguous().view((train_batch_size, lstm_out_dim))
+        y = y.contiguous().view((-1, lstm_out_dim))
         # print(y.size())
         y = self.fc(y)
         return y
@@ -231,8 +230,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     train_batch_size // sequence_length)
     num_val_we_use = len(val_useful_start_idx) // (train_batch_size // sequence_length) * (
     train_batch_size // sequence_length)
-    # num_train_we_use = 800
-    # num_val_we_use = 80
+    # num_train_we_use = 4000
+    # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
@@ -312,9 +311,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     epoches = 25
     for epoch in range(epoches):
-        model.train()
+        model.train()   
         # if optimizer_choice == 0:
-        #     exp_lr_scheduler.step()
+            # exp_lr_scheduler.step()
         train_loss = 0.0
         train_corrects = 0
         train_start_time = time.time()
@@ -360,10 +359,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_elapsed_time = time.time() - train_start_time
         train_accuracy = train_corrects / num_train_all
         train_average_loss = train_loss / num_train
-        print('epoch: {:4d} train completed in: {:.0f}m{:.0f}s loss: {:4.4f} accuracy: {:.4f}'.format(epoch, train_elapsed_time // 60,
-                                                                                       train_elapsed_time % 60,
-                                                                                       train_average_loss,
-                                                                                       train_accuracy))
+
 
         # train_average_loss = train_loss / num_train
         # print('accuracy', train_accuracy)
@@ -399,13 +395,17 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(val_corrects)
         val_elapsed_time = time.time() - val_start_time
         val_accuracy = val_corrects / num_val_all
-        val_average_loss = val_loss / num_val
-        print('epoch: {:4d} val completed in: {:.0f}m{:.0f}s loss: {:4.4f} accuracy {:.4f}'.format(epoch, val_elapsed_time // 60,
-                                                                                     val_elapsed_time % 60,
-                                                                                     val_average_loss,
-                                                                                     val_accuracy))
-        # print('accuracy', val_accuracy)
-        exp_lr_scheduler.step(val_average_loss)
+        val_average_loss = val_loss / num_val_all
+        print('epoch: {:4d} train completed in: {:2.0f}m{:2.0f}s  train loss: {:4.4f} train accu: {:.4f}'
+               'valid completed in: {:.0f}m{:.0f}s '
+              'valid loss: {:4.4f} valid accu: {:.4f}'.format(epoch, train_elapsed_time // 60, train_elapsed_time % 60,
+                                                              train_average_loss, train_accuracy,
+                                                              val_elapsed_time // 60, val_elapsed_time % 60,
+                                                              val_average_loss, val_accuracy))
+
+        if optimizer_choice == 0:
+            exp_lr_scheduler.step(val_average_loss)
+
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
             correspond_train_acc = train_accuracy
@@ -415,9 +415,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 correspond_train_acc = train_accuracy
                 best_model_wts = model.state_dict()
 
-    print('best accuracy: {:.4f} cor train accu: {.4f}'.format(best_val_accuracy, correspond_train_acc))
+    print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171118_epoch_25_cnn_lstm_fc_length_4_sgd_.pth')
+    torch.save(model, '20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
     print()
 
 
