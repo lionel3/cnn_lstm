@@ -16,7 +16,7 @@ from PIL import Image
 
 # torch.backends.cudnn.enabled = True
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5, 6, 7"
 
 import time
 import pickle
@@ -59,8 +59,8 @@ class CholecDataset(Dataset):
 
 # batch_size 要整除gpu个数 以及sequence长度
 sequence_length = 4
-train_batch_size = 200
-val_batch_size = 16
+train_batch_size = 300
+val_batch_size = 72
 lstm_in_dim = 2048
 lstm_out_dim = 512
 optimizer_choice = 0  # 0 for SGD, 1 for Adam89
@@ -136,8 +136,8 @@ class my_resnet(torch.nn.Module):
         # y = y.view((train_batch_size, 7))
 
         y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim) # 将这里的num_gpu改成1 因为每次调用的时候, 一个forward处理一个batch
-        y = y.permute(0, 2, 1, 3)
-        y = y.contiguous().view((-1, lstm_out_dim))
+        y = y.permute(0, 2, 1, 3).contiguous()
+        y = y.view((-1, lstm_out_dim))
         # print(y.size())
         y = self.fc(y)
         # print(y.size())
@@ -232,10 +232,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('num of useful valid start idx:', len(val_useful_start_idx))
     print('the last idx of train start idx:', val_useful_start_idx[-1])
 
-    num_train_we_use = len(train_useful_start_idx) // (train_batch_size // sequence_length) * (
-        train_batch_size // sequence_length)
-    num_val_we_use = len(val_useful_start_idx) // (train_batch_size // sequence_length) * (
-        train_batch_size // sequence_length)
+    num_train_we_use = len(train_useful_start_idx)// sequence_length * sequence_length
+    num_val_we_use = len(val_useful_start_idx) // sequence_length * sequence_length
     # num_train_we_use = 800
     # num_val_we_use = 80
 
@@ -428,7 +426,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
+    torch.save(model, '20171121_epoch_25_cnn_lstm_fc_multi_gpu_length_4_sgd_on_loss.pth')
     print()
 
 
