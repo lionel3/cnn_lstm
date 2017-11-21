@@ -360,7 +360,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(train_corrects)
         train_elapsed_time = time.time() - train_start_time
         train_accuracy = train_corrects / num_train_all
-        train_average_loss = train_loss / num_train
+        train_average_loss = train_loss / num_train_all
 
         # train_average_loss = train_loss / num_train
         # print('accuracy', train_accuracy)
