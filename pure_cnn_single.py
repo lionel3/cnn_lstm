@@ -57,7 +57,7 @@ class CholecDataset(Dataset):
 sequence_length = 4
 train_batch_size = 100
 val_batch_size = 8
-optimizer_choice = 0  # 0 for SGD, 1 for Adam89
+optimizer_choice = 1  # 0 for SGD, 1 for Adam89
 
 class my_resnet(torch.nn.Module):
     def __init__(self):
@@ -73,14 +73,14 @@ class my_resnet(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.fc1 = nn.Linear(2048, 7)
-        # self.fc2 = nn.Linear(512, 7)
+        self.fc1 = nn.Linear(2048, 512)
+        self.fc2 = nn.Linear(512, 7)
 
     def forward(self, x):
-        x = self.share.forward(x)
+        # x = self.share.forward(x)
         x = x.view(-1, 2048)
         y = self.fc1(x)
-        # y = self.fc2(y)
+        y = self.fc2(y)
         return y
 
 
@@ -92,7 +92,6 @@ def get_useful_start_idx(sequence_length, list_each_length):
             idx.append(j)
         count += list_each_length[i]
     return idx
-
 
 def get_data(data_path):
     with open(data_path, 'rb') as f:
@@ -149,7 +148,6 @@ def get_data(data_path):
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
-
 def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train = len(train_dataset)
     num_val = len(val_dataset)
@@ -164,55 +162,21 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_count += val_num_each[i]
     print('vertify num of valid:', val_count)
 
-    train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
-
-    val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
-    print('num of useful train start idx:', len(train_useful_start_idx))
-    print('the last idx of train start idx:', train_useful_start_idx[-1])
-
-    print('num of useful valid start idx:', len(val_useful_start_idx))
-    print('the last idx of train start idx:', val_useful_start_idx[-1])
-
-    num_train_we_use = len(train_useful_start_idx) // (train_batch_size // sequence_length) * (
-        train_batch_size // sequence_length)
-    num_val_we_use = len(val_useful_start_idx) // (train_batch_size // sequence_length) * (
-        train_batch_size // sequence_length)
-    # num_train_we_use = 800
-    # num_val_we_use = 80
-
-    train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
-    val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
-
-    # 此处可以shuffle train 的idx
-
-
-    # num_train_truth = 12000
-    # num_train_truth = (num_train + 1 - sequence_length) // (train_batch_size // sequence_length) * (train_batch_size // sequence_length)
-    # train_true_start_idx = list(range((num_train_truth)))
-    # train_true_start_idx = list(range(100))
+    train_idx = [i for i in range(num_train)]
     np.random.seed(0)
-    np.random.shuffle(train_we_use_start_idx)
-    train_idx = []
-    for i in range(num_train_we_use):
-        for j in range(sequence_length):
-            train_idx.append(train_we_use_start_idx[i] + j)
-
-    val_idx = []
-    for i in range(num_val_we_use):
-        for j in range(sequence_length):
-            val_idx.append(val_we_use_start_idx[i] + j)
+    np.random.shuffle(train_idx)
+    val_idx = [i for i in range(num_val)]
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
+
     print('num of trainset:', num_train)
-    print('num of train samples we use:', num_train_we_use)
     print('num of all train samples:', num_train_all)
     print('train batch size:', train_batch_size)
     print('sequence length:', sequence_length)
     print('num of gpu:', num_gpu)
 
     print('num of valset:', num_val)
-    print('num of val samples we use:', num_val_we_use)
     print('num of all val samples:', num_val_all)
 
     train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_idx)
@@ -233,6 +197,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         num_workers=8,
         pin_memory=False
     )
+
     model = models.resnet50(pretrained=True)
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, 7)
@@ -257,6 +222,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     correspond_train_acc = 0.0
 
     epoches = 25
+    all_info = []
+    all_train_accuracy = []
+    all_train_loss = []
+    all_val_accuracy = []
+    all_val_loss = []
+
     for epoch in range(epoches):
 
         model.train()
@@ -332,9 +303,20 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 correspond_train_acc = train_accuracy
                 best_model_wts = model.state_dict()
 
+        all_train_loss.append(train_average_loss)
+        all_train_accuracy.append(train_accuracy)
+        all_val_loss.append(val_average_loss)
+        all_val_accuracy.append(val_accuracy)
+
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171121_epoch_25_pure_cnn_length_4_sgd_on_loss.pth')
+    torch.save(model, '20171121_epoch_25_pure_cnn_single_adam.pth')
+    all_info.append(all_train_accuracy)
+    all_info.append(all_train_loss)
+    all_info.append(all_val_accuracy)
+    all_info.append(all_val_loss)
+    with open('20171121_epoch_25_pure_cnn_single_adam.pkl', 'wb') as f:
+        pickle.dump(all_info, f)
     print()
 
 def main():
