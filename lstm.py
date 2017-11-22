@@ -268,8 +268,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('num of val samples we use:', num_val_we_use)
     print('num of all val samples:', num_val_all)
 
-    print(train_idx[0:20])
-    print(val_idx[0:210])
+    # print(train_idx[0:20])
+    # print(val_idx[0:210])
 
     train_loader = DataLoader(
         train_dataset,
@@ -334,7 +334,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
             optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
 
-            model.module.hidden = model.module.init_hidden(train_batch_size // sequence_length // num_gpu)
+            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
@@ -382,7 +382,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 inputs = Variable(inputs)
                 labels = Variable(labels_2)
 
-            model.module.hidden = model.module.init_hidden(val_batch_size // sequence_length // num_gpu)
+            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
