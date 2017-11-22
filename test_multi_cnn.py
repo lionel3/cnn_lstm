@@ -176,10 +176,6 @@ def get_data(data_path):
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
-    print(np.max(train_labels))
-    print(np.max(val_labels))
-    print(np.max(test_labels))
-
     # print(test_labels[0].shape)
     # print(val_labels[0].shape)
     # print(test_labels[0].shape)
@@ -241,11 +237,11 @@ def test_model(test_dataset, test_num_each):
     print('sequence length:', sequence_length)
     print('num of gpu:', num_gpu)
 
-    # test_sampler = torch.utils.data.sampler.SequentialSampler(test_idx)
+    test_sampler = torch.utils.data.sampler.SubsetRandomSampler(test_idx)
     test_loader = DataLoader(
         test_dataset,
         batch_size=test_batch_size,
-        sampler=test_idx,
+        sampler=test_sampler,
         # shuffle=True,
         num_workers=8,
         pin_memory=False
@@ -289,8 +285,6 @@ def test_model(test_dataset, test_num_each):
         # print(outputs.size())
         _, preds = torch.max(outputs.data, 1)
 
-
-
         # all_preds.append(preds[i].numpy() for i in range(len(preds)))
 
         # print(outputs.size()[0])
@@ -299,8 +293,7 @@ def test_model(test_dataset, test_num_each):
         #     all_preds.append(outputs.data[i].cpu().numpy().tolist())
         for i in range(len(preds)):
             all_preds.append(preds[i])
-            # print(labels[i])
-        # print(len(all_preds))
+        print(len(all_preds))
         loss = criterion(outputs, labels)
         test_loss += loss.data[0] / len(data[0]) * 4
         test_corrects += torch.sum(preds == labels.data)

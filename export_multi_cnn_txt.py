@@ -64,7 +64,6 @@ lstm_in_dim = 2048
 lstm_out_dim = 512
 optimizer_choice = 0  # 0 for SGD, 1 for Adam89
 
-
 class my_resnet(torch.nn.Module):
     def __init__(self):
         super(my_resnet, self).__init__()
@@ -82,71 +81,14 @@ class my_resnet(torch.nn.Module):
         # self.task_1 = nn.Sequential()
         # self.task_1.add_module("lstm", nn.LSTM(lstm_in_dim, 7))
         # self.fc = nn.Linear(2048, lstm_in_dim)
-        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim)
-
-        self.hidden = self.init_hidden()
-        # print(len(self.lstm.all_weights))
-        # print(len(self.lstm.all_weights[0]))
-        self.fc = nn.Linear(lstm_out_dim, 7)
-
-        init.xavier_normal(self.lstm.all_weights[0][0])
-        init.xavier_normal(self.lstm.all_weights[0][1])
-        # init.xavier_normal(self.fc.parameters())
-        # self.count = 0
-        # 多GPU时候.这种赋值方式不成功, 所以尽量取能整除的batch
-        # self.forward_batch_size = 0
-
-    def init_hidden(self, hidden_batch_size=1):
-        if use_gpu:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()))
-        else:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)))
+        self.fc = nn.Linear(2048, 7)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        # x = self.fc(x)
-        # x = x.view(-1, 100, 1, 1)
-        # print('x', x.size())
-        # self.count += x.size()[0]
-        # self.forward_batch_size = x.size()[0]
+        x = self.fc(x)
 
-        # self.hidden = self.init_hidden(train_batch_size // num_gpu)
-        # print('count', self.count)
-        # 这边会出现问题, 因为view是根据最后一个维度来的,所以顺序不对, permute或者batch_fisrt解决问题
-        x = x.view(-1, sequence_length, lstm_in_dim)
-        x = x.permute(1, 0, 2)
-        self.lstm.flatten_parameters()
-        y, self.hidden = self.lstm(x, self.hidden)
-        # print('hidden:', self.hidden[0].size())
-        # print(self.hidden[0][0, 28])
-        # print('y:', y.size())
-        # print(y[2,28])
-        # y = y.contiguous().view(num_gpu, sequence_length, -1, 7)
-        # y = y.permute(0, 2, 1, 3).contiguous()
-        # # transpose或者permute会把变量变成非连续(内存)contiguous, 需要加contiguous()来搞定,
-        # # 看来不是内存地址的错,是因为没有写进forward函数里面
-        # 结果什么意思,我为什么遇到原来的错误??? 以后一定切记留下错误的代码作比对
-        # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
-        # y = y.view((train_batch_size, 7))
-        y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
-        y = y.permute(0, 2, 1, 3).contiguous()
-        y = y.view((-1, lstm_out_dim))
-        # print(y.size())
-        y = self.fc(y)
-        return y
-
-def get_useful_start_idx(sequence_length, list_each_length):
-    count = 0
-    idx = []
-    for i in range(len(list_each_length)):
-        for j in range(count, count + (list_each_length[i] + 1 - sequence_length)):
-            idx.append(j)
-        count += list_each_length[i]
-    return idx
-
+        return x
 
 def get_data(data_path):
     with open(data_path, 'rb') as f:
@@ -175,10 +117,6 @@ def get_data(data_path):
     train_labels = np.asarray(train_labels, dtype=np.int64)
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
-
-    print(np.max(train_labels))
-    print(np.max(val_labels))
-    print(np.max(test_labels))
 
     # print(test_labels[0].shape)
     # print(val_labels[0].shape)
@@ -215,42 +153,23 @@ def test_model(test_dataset, test_num_each):
         test_count += test_num_each[i]
     print('vertify num of test:', test_count)
 
-    test_useful_start_idx = get_useful_start_idx(sequence_length, test_num_each)
-
-    print('num of useful test start idx:', len(test_useful_start_idx))
-    print('the last idx of test start idx:', test_useful_start_idx[-1])
-
-    num_test_we_use = len(test_useful_start_idx)
-    # num_test_we_use = 804
-    # num_test_we_use = len(test_useful_start_idx) // (test_batch_size // sequence_length) * (
-    #     test_batch_size // sequence_length)
-
-
-    test_we_use_start_idx = test_useful_start_idx[0:num_test_we_use]
-
-    test_idx = []
-    for i in range(num_test_we_use):
-        for j in range(sequence_length):
-            test_idx.append(test_we_use_start_idx[i] + j)
-
-    num_test_all = len(test_idx)
-    print('num of testset:', num_test)
-    print('num of test samples we use:', num_test_we_use)
-    print('num of all test samples:', num_test_all)
+    test_idx = [i for i in range(num_test)]
+    num_test_all = num_test * 7
+    print('num_test:', num_test)
+    print('num_test_all:', num_test_all)
     print('test batch size:', test_batch_size)
-    print('sequence length:', sequence_length)
     print('num of gpu:', num_gpu)
 
-    # test_sampler = torch.utils.data.sampler.SequentialSampler(test_idx)
+    test_sampler = torch.utils.data.sampler.SubsetRandomSampler(test_idx)
     test_loader = DataLoader(
         test_dataset,
         batch_size=test_batch_size,
-        sampler=test_idx,
+        sampler=test_sampler,
         # shuffle=True,
         num_workers=8,
         pin_memory=False
     )
-    model = torch.load('20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
+    model = torch.load('.pth')
 
     if use_gpu:
         model = model.cuda()
@@ -264,43 +183,21 @@ def test_model(test_dataset, test_num_each):
     test_corrects = 0
     test_start_time = time.time()
 
-    all_preds = []
-    count = 0
     for data in test_loader:
         inputs, labels_1, labels_2 = data
-        # print(labels_2[4])
-        # print(labels_2[9])
-        labels_2 = labels_2[3::4]
-        # print(labels_2[0])
-        # print(labels_2[1])
+
         if use_gpu:
             inputs = Variable(inputs.cuda(), volatile=True)
-            labels = Variable(labels_2.cuda(), volatile=True)
+            labels = Variable(labels_1.cuda(), volatile=True)
         else:
             inputs = Variable(inputs, volatile=True)
-            labels = Variable(labels_2, volatile=True)
-
-
-        model.hidden = model.init_hidden(len(data[0]) // sequence_length // num_gpu)
-        # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
+            labels = Variable(labels_1, volatile=True)
 
         outputs = model.forward(inputs)
         outputs = outputs[3::4]
         # print(outputs.size())
         _, preds = torch.max(outputs.data, 1)
 
-
-
-        # all_preds.append(preds[i].numpy() for i in range(len(preds)))
-
-        # print(outputs.size()[0])
-        # print(outputs.data[0].cpu().numpy())
-        # for i in range(outputs.size()[0]):
-        #     all_preds.append(outputs.data[i].cpu().numpy().tolist())
-        for i in range(len(preds)):
-            all_preds.append(preds[i])
-            # print(labels[i])
-        # print(len(all_preds))
         loss = criterion(outputs, labels)
         test_loss += loss.data[0] / len(data[0]) * 4
         test_corrects += torch.sum(preds == labels.data)
@@ -308,10 +205,6 @@ def test_model(test_dataset, test_num_each):
     test_elapsed_time = time.time() - test_start_time
     test_accuracy = test_corrects / num_test_we_use
     test_average_loss = test_loss / num_test_we_use
-    print(type(all_preds))
-    print(len(all_preds))
-    with open('20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss_preds.pkl', 'wb') as f:
-        pickle.dump(all_preds, f)
     print('test completed in: {:2.0f}m{:2.0f}s test loss: {:4.4f} test accu: {:.4f}'
           .format(test_elapsed_time // 60, test_elapsed_time % 60, test_average_loss, test_accuracy))
 

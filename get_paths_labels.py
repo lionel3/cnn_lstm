@@ -48,7 +48,6 @@ phase_dict_key = ['Preparation', 'CalotTriangleDissection', 'ClippingCutting', '
                   'GallbladderPackaging', 'CleaningCoagulation', 'GallbladderRetraction']
 for i in range(len(phase_dict_key)):
     phase_dict[phase_dict_key[i]] = i
-
 print(phase_dict)
 
 # for i in range(1):

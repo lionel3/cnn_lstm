@@ -57,8 +57,8 @@ class CholecDataset(Dataset):
 
 # batch_size 要整除gpu个数 以及sequence长度
 sequence_length = 4
-train_batch_size = 60
-val_batch_size = 60
+train_batch_size = 80
+val_batch_size = 20
 lstm_in_dim = 2048
 optimizer_choice = 1  # 0 for SGD, 1 for Adam89
 
@@ -84,7 +84,7 @@ class my_resnet(torch.nn.Module):
 
     def forward(self, x):
         x = self.share.forward(x)
-        # x = x.view(-1, 2048)
+        x = x.view(-1, 2048)
         x = self.fc(x)
 
         return x
@@ -223,14 +223,15 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     # print('num of valset:', num_val)
     # print('num of samples we use:', num_val_we_use)
     # print('num of all samples:', num_val_all)
-    train_idx = [i for i in range(num_train)]
-    np.random_seed(0)
+
+    train_idx = [i for i in range(1000)]
+    np.random.seed(0)
     np.random.shuffle(train_idx)
-    val_idx = [j for j in range(num_val)]
+    val_idx = [j for j in range(200)]
 
 
-    num_train_all = num_train
-    num_val_all = num_val
+    num_train_all = 7000
+    num_val_all =1400
 
     train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_idx)
     train_loader = DataLoader(
@@ -257,7 +258,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     if use_gpu:
         model = model.cuda()
     model = DataParallel(model)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = nn.BCEWithLogitsLoss(size_average=False)
     # 要先将model转换到cuda, 再提供optimizer
     # for parameter in model.parameters():
     #     print(parameter)
@@ -273,6 +274,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     correspond_train_acc = 0.0
 
     epoches = 25
+
+    all_info = []
+    all_train_accuracy = []
+    all_train_loss = []
+    all_val_accuracy = []
+    all_val_loss = []
+
     sig_f = nn.Sigmoid()
     for epoch in range(epoches):
         model.train()
@@ -285,13 +293,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             inputs, labels_1, labels_2 = data
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels = Variable(labels_2.cuda())
+                labels = Variable(labels_1.cuda())
             else:
                 inputs = Variable(inputs)
-                labels = Variable(labels_2)
+                labels = Variable(labels_1)
             optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
 
-            model.module.hidden = model.module.init_hidden(train_batch_size // sequence_length // num_gpu)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
@@ -308,15 +315,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             loss.backward()
             optimizer.step()
             train_loss += loss.data[0]
-
-            train_corrects += torch.sum(preds == labels.data)
             # print(train_corrects)
         train_elapsed_time = time.time() - train_start_time
         train_accuracy = train_corrects / num_train_all
-
-        print('epoch: {:4d} train completed in: {:.0f}m{:.0f}s accuracy {:.4f}'.format(epoch, train_elapsed_time // 60,
-                                                                                       train_elapsed_time % 60,
-                                                                                       train_accuracy))
+        train_average_loss = train_loss / num_train_all
 
         # train_average_loss = train_loss / num_train
         # print('accuracy', train_accuracy)
@@ -330,17 +332,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             inputs, labels_1, labels_2 = data
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels = Variable(labels_2.cuda())
+                labels = Variable(labels_1.cuda())
             else:
                 inputs = Variable(inputs)
-                labels = Variable(labels_2)
-
-            model.module.hidden = model.module.init_hidden(val_batch_size // sequence_length // num_gpu)
-            # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
+                labels = Variable(labels_1)
 
             outputs = model.forward(inputs)
-
-            utputs = model.forward(inputs)
 
             sig_out = outputs.data.cpu()
             sig_out = sig_f(sig_out)
@@ -354,11 +351,22 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # print(val_corrects)
         val_elapsed_time = time.time() - val_start_time
         val_accuracy = val_corrects / num_val_all
+        val_average_loss = val_loss / num_val_all
 
-        print('epoch: {:4d} val completed in: {:.0f}m{:.0f}s accuracy {:.4f}'.format(epoch, val_elapsed_time // 60,
-                                                                                     val_elapsed_time % 60,
-                                                                                     val_accuracy))
         # print('accuracy', val_accuracy)
+        # if optimizer_choice == 0:
+            # exp_lr_scheduler.step(val_average_loss)
+        print('epoch: {:4d} train completed in: {:2.0f}m{:2.0f}s  train loss: {:4.4f} train accu: {:.4f}'
+              'valid completed in: {:.0f}m{:.0f}s '
+              'valid loss: {:4.4f} valid accu: {:.4f}'.format(epoch, train_elapsed_time // 60, train_elapsed_time % 60,
+                                                              train_average_loss, train_accuracy,
+                                                              val_elapsed_time // 60, val_elapsed_time % 60,
+                                                              val_average_loss, val_accuracy))
+
+        all_train_loss.append(train_average_loss)
+        all_train_accuracy.append(train_accuracy)
+        all_val_loss.append(val_average_loss)
+        all_val_accuracy.append(val_accuracy)
 
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
@@ -369,7 +377,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 correspond_train_acc = train_accuracy
                 best_model_wts = model.state_dict()
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171116_epoch_25_multi_cnn.pth')
+    torch.save(model, '20171121_epoch_25_multi_cnn_adam.pth')
+    all_info.append(all_train_accuracy)
+    all_info.append(all_train_loss)
+    all_info.append(all_val_accuracy)
+    all_info.append(all_val_loss)
+    with open('20171121_epoch_25_multi_cnn_adam.pkl', 'wb') as f:
+        pickle.dump(all_info, f)
     print()
 
 

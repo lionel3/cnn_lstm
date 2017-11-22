@@ -221,14 +221,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     best_val_accuracy = 0.0
     correspond_train_acc = 0.0
 
-    epoches = 25
+    epochs = 25
     all_info = []
     all_train_accuracy = []
     all_train_loss = []
     all_val_accuracy = []
     all_val_loss = []
 
-    for epoch in range(epoches):
+    for epoch in range(epochs):
 
         model.train()
         # if optimizer_choice == 0:
