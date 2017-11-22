@@ -137,7 +137,6 @@ class my_resnet(torch.nn.Module):
         y = self.fc(y)
         return y
 
-
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
     idx = []
@@ -425,12 +424,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         all_val_accuracy.append(val_accuracy)
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
+    torch.save(model, '20171122_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
     all_info.append(all_train_accuracy)
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    with open('20171121_epoch_25_pure_cnn_single_adam.pkl', 'wb') as f:
+    with open('20171122_epoch_25_pure_cnn_single_adam.pkl', 'wb') as f:
         pickle.dump(all_info, f)
     print()
 
