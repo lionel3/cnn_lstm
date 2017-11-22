@@ -289,8 +289,6 @@ def test_model(test_dataset, test_num_each):
         # print(outputs.size())
         _, preds = torch.max(outputs.data, 1)
 
-
-
         # all_preds.append(preds[i].numpy() for i in range(len(preds)))
 
         # print(outputs.size()[0])
