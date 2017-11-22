@@ -14,6 +14,7 @@ from torch.nn import DataParallel
 import os
 from PIL import Image
 
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import time
