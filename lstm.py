@@ -82,9 +82,9 @@ class my_resnet(torch.nn.Module):
         # self.task_1 = nn.Sequential()
         # self.task_1.add_module("lstm", nn.LSTM(lstm_in_dim, 7))
         # self.fc = nn.Linear(2048, lstm_in_dim)
-        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim)
+        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
 
-        self.hidden = self.init_hidden()
+        # self.hidden = self.init_hidden()
         # print(len(self.lstm.all_weights))
         # print(len(self.lstm.all_weights[0]))
         self.fc = nn.Linear(lstm_out_dim, 7)
@@ -96,13 +96,13 @@ class my_resnet(torch.nn.Module):
         # 多GPU时候.这种赋值方式不成功, 所以尽量取能整除的batch
         # self.forward_batch_size = 0
 
-    def init_hidden(self, hidden_batch_size=1):
-        if use_gpu:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()))
-        else:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)))
+    # def init_hidden(self, hidden_batch_size=1):
+    #     if use_gpu:
+    #         return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda(), requires_grad=False),
+    #                 Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda(), requires_grad=False))
+    #     else:
+    #         return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim), requires_grad=False),
+    #                 Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim), requires_grad=False))
 
     def forward(self, x):
         x = self.share.forward(x)
@@ -117,24 +117,14 @@ class my_resnet(torch.nn.Module):
         # print('count', self.count)
         # 这边会出现问题, 因为view是根据最后一个维度来的,所以顺序不对, permute或者batch_fisrt解决问题
         x = x.view(-1, sequence_length, lstm_in_dim)
-        x = x.permute(1, 0, 2)
+        # x = x.permute(1, 0, 2)
         self.lstm.flatten_parameters()
-        y, self.hidden = self.lstm(x, self.hidden)
-        # print('hidden:', self.hidden[0].size())
-        # print(self.hidden[0][0, 28])
-        # print('y:', y.size())
-        # print(y[2,28])
-        # y = y.contiguous().view(num_gpu, sequence_length, -1, 7)
-        # y = y.permute(0, 2, 1, 3).contiguous()
-        # # transpose或者permute会把变量变成非连续(内存)contiguous, 需要加contiguous()来搞定,
-        # # 看来不是内存地址的错,是因为没有写进forward函数里面
-        # 结果什么意思,我为什么遇到原来的错误??? 以后一定切记留下错误的代码作比对
-        # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
-        # y = y.view((train_batch_size, 7))
-        y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
-        y = y.permute(0, 2, 1, 3)
-        y = y.contiguous().view((-1, lstm_out_dim))
+        y, _ = self.lstm(x)
         # print(y.size())
+        # y = y.view((train_batch_size, 7))
+        # y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
+        # y = y.permute(0, 2, 1, 3)
+        y= y.contiguous().view(-1, lstm_out_dim)
         y = self.fc(y)
         return y
 
@@ -228,10 +218,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('num of useful valid start idx:', len(val_useful_start_idx))
     print('the last idx of train start idx:', val_useful_start_idx[-1])
 
-    num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
-    num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    # num_train_we_use = 800
-    # num_val_we_use = 80
+    # num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
+    # num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
+    num_train_we_use = 8000
+    num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
@@ -334,7 +324,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
             optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
 
-            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
+            # model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
@@ -382,7 +372,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 inputs = Variable(inputs)
                 labels = Variable(labels_2)
 
-            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
+            # model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
