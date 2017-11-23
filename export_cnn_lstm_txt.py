@@ -9,7 +9,7 @@ test_labels =train_test_paths_labels[5]
 
 
 
-with open('20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss_preds.pkl', 'rb') as f:
+with open('20171122_lstm_epoch_25_length_4_sgd_preds.pkl', 'rb') as f:
     ori_preds = pickle.load(f)
 print("num of ori preds", len(ori_preds))
 print("preds example: ", ori_preds[0])
@@ -42,7 +42,7 @@ for i in range(40):
         preds_all.append(ori_preds[j])
     for k in range(len(preds_each)):
         f.write(str(25* k))
-        f.write(' ')
+        f.write('\t')
         f.write(phase_dict_key[preds_each[k]])
         f.write('\n')
     f.close()

@@ -54,14 +54,7 @@ class CholecDataset(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
-
-# batch_size 要整除gpu个数 以及sequence长度
-sequence_length = 4
-train_batch_size = 80
-val_batch_size = 20
-lstm_in_dim = 2048
-optimizer_choice = 1  # 0 for SGD, 1 for Adam89
-
+test_batch_size = 800
 
 class my_resnet(torch.nn.Module):
     def __init__(self):
@@ -156,16 +149,13 @@ def get_data(data_path):
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
 
-test_batch_size = 800
-
-
 def test_model(test_dataset, test_num_each):
     num_test = len(test_dataset)
-
+    # num_test = 800
     # test_idx = [i for i in range(1000)]
-    test_idx = [i for i in range(len(num_test))]
+    test_idx = [i for i in range(num_test)]
 
-    num_test_all = 7 * test_idx
+    num_test_all = 7 * num_test
 
     test_loader = DataLoader(
         test_dataset,
@@ -175,23 +165,30 @@ def test_model(test_dataset, test_num_each):
         num_workers=8,
         pin_memory=False
     )
-
+    model = torch.load('20171121_epoch_25_multi_cnn_adam.pth')
+    criterion = nn.BCEWithLogitsLoss(size_average=False)
+    model = model.module
     sig_f = nn.Sigmoid()
     model.eval()
     test_loss = 0.0
     test_corrects = 0
     test_start_time = time.time()
+    all_preds = []
     for data in test_loader:
         inputs, labels_1, labels_2 = data
         if use_gpu:
-            inputs = Variable(inputs.cuda())
-            labels = Variable(labels_1.cuda())
+            inputs = Variable(inputs.cuda(),volatile=True)
+            labels = Variable(labels_1.cuda(),volatile=True)
         else:
-            inputs = Variable(inputs)
-            labels = Variable(labels_1)
+            inputs = Variable(inputs,volatile=True)
+            labels = Variable(labels_1,volatile=True)
 
         outputs = model.forward(inputs)
 
+        for i in range(len(outputs)):
+            all_preds.append(outputs[i].data.cpu().numpy().tolist())
+        print(len(all_preds))
+        # print(all_preds[0])
         sig_out = outputs.data.cpu()
         sig_out = sig_f(sig_out)
 
@@ -201,50 +198,18 @@ def test_model(test_dataset, test_num_each):
         # print(test_corrects)
         labels = Variable(labels.data.float())
         loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
         test_loss += loss.data[0]
         # print(test_corrects)
     test_elapsed_time = time.time() - test_start_time
     test_accuracy = test_corrects / num_test_all
     test_average_loss = test_loss / num_test_all
-
-    # test_average_loss = test_loss / num_test
-    # print('accuracy', test_accuracy)
-    # print('test loss: {:.4f} accuracy: {:.4f}'.format(test_average_loss, test_accuracy))
-
-    model.eval()
-    val_loss = 0.0
-    val_corrects = 0
-    val_start_time = time.time()
-    for data in val_loader:
-        inputs, labels_1, labels_2 = data
-        if use_gpu:
-            inputs = Variable(inputs.cuda())
-            labels = Variable(labels_1.cuda())
-        else:
-            inputs = Variable(inputs)
-            labels = Variable(labels_1)
-
-        outputs = model.forward(inputs)
-
-        sig_out = outputs.data.cpu()
-        sig_out = sig_f(sig_out)
-
-        predict = torch.ByteTensor(sig_out > 0.5)
-        predict = predict.long()
-        val_corrects += torch.sum(predict == labels.data.cpu())
-        labels = Variable(labels.data.float())
-        loss = criterion(outputs, labels)
-        val_loss += loss.data[0]
-        # print(val_corrects)
-    val_elapsed_time = time.time() - val_start_time
-    val_accuracy = val_corrects / num_val_all
-    val_average_loss = val_loss / num_val_all
-
-    # print('accuracy', val_accuracy)
-    # if optimizer_choice == 0:
-    # exp_lr_scheduler.step(val_average_loss)
+    print(type(all_preds))
+    print('all preds:', len(all_preds))
+    # print(all_preds[0])
+    # all_preds_np = np.asarray(all_preds, dtype=np.float32)
+    with open('20171121_epoch_25_multi_cnn_adam_preds.pkl', 'wb') as f:
+        pickle.dump(all_preds, f)
+    # np.save('20171121_epoch_25_multi_cnn_adam_preds.pkl', all_preds_np)
     print('test completed in: {:2.0f}m{:2.0f}s  test loss: {:4.4f} test accu: {:.4f}'
           .format(test_elapsed_time // 60, test_elapsed_time % 60, test_average_loss, test_accuracy))
 
@@ -253,8 +218,8 @@ print()
 
 
 def main():
-    train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
-    train_model(train_dataset, train_num_each, val_dataset, val_num_each)
+    _, _, _, _, test_dataset, test_num_each = get_data('train_val_test_paths_labels.pkl')
+    test_model(test_dataset, test_num_each)
 
     # _, _, _, _, test_dataset, test_num_each = get_data('train_val_test_paths_labels.pkl')
     # test_model(test_dataset)

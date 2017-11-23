@@ -14,6 +14,7 @@ from torch.nn import DataParallel
 import os
 from PIL import Image
 
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import time
@@ -57,8 +58,8 @@ class CholecDataset(Dataset):
 
 # batch_size 要整除gpu个数 以及sequence长度
 sequence_length = 4
-train_batch_size = 100
-val_batch_size = 8
+train_batch_size = 200
+val_batch_size = 16
 lstm_in_dim = 2048
 lstm_out_dim = 512
 optimizer_choice = 0  # 0 for SGD, 1 for Adam89
@@ -86,8 +87,6 @@ class my_resnet(torch.nn.Module):
         self.hidden = self.init_hidden()
         # print(len(self.lstm.all_weights))
         # print(len(self.lstm.all_weights[0]))
-        self.dp = nn.Dropout(p=0.5)
-
         self.fc = nn.Linear(lstm_out_dim, 7)
 
         init.xavier_normal(self.lstm.all_weights[0][0])
@@ -99,44 +98,24 @@ class my_resnet(torch.nn.Module):
 
     def init_hidden(self, hidden_batch_size=1):
         if use_gpu:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()))
+            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda(), requires_grad=False),
+                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda(), requires_grad=False))
         else:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)))
+            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim), requires_grad=False),
+                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim), requires_grad=False))
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        # x = self.fc(x)
-        # x = x.view(-1, 100, 1, 1)
-        # print('x', x.size())
-        # self.count += x.size()[0]
-        # self.forward_batch_size = x.size()[0]
 
-        # self.hidden = self.init_hidden(train_batch_size // num_gpu)
-        # print('count', self.count)
-        # 这边会出现问题, 因为view是根据最后一个维度来的,所以顺序不对, permute或者batch_fisrt解决问题
         x = x.view(-1, sequence_length, lstm_in_dim)
         x = x.permute(1, 0, 2)
         self.lstm.flatten_parameters()
-        y = self.lstm(x)
-        # print('hidden:', self.hidden[0].size())
-        # print(self.hidden[0][0, 28])
-        # print('y:', y.size())
-        # print(y[2,28])
-        # y = y.contiguous().view(num_gpu, sequence_length, -1, 7)
-        # y = y.permute(0, 2, 1, 3).contiguous()
-        # # transpose或者permute会把变量变成非连续(内存)contiguous, 需要加contiguous()来搞定,
-        # # 看来不是内存地址的错,是因为没有写进forward函数里面
-        # 结果什么意思,我为什么遇到原来的错误??? 以后一定切记留下错误的代码作比对
-        # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
-        # y = y.view((train_batch_size, 7))
+        y, self.hidden = self.lstm(x, self.hidden)
+
         y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
         y = y.permute(0, 2, 1, 3)
         y = y.contiguous().view((-1, lstm_out_dim))
-        # print(y.size())
-        y = self.dp(y)
         y = self.fc(y)
         return y
 

@@ -138,6 +138,7 @@ class my_resnet(torch.nn.Module):
         y = self.fc(y)
         return y
 
+
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
     idx = []
@@ -298,7 +299,7 @@ def test_model(test_dataset, test_num_each):
         for i in range(len(preds)):
             all_preds.append(preds[i])
             # print(labels[i])
-        # print(len(all_preds))
+        print(len(all_preds))
         loss = criterion(outputs, labels)
         test_loss += loss.data[0] / len(data[0]) * 4
         test_corrects += torch.sum(preds == labels.data)
@@ -306,10 +307,11 @@ def test_model(test_dataset, test_num_each):
     test_elapsed_time = time.time() - test_start_time
     test_accuracy = test_corrects / num_test_we_use
     test_average_loss = test_loss / num_test_we_use
+
     print(type(all_preds))
     print(len(all_preds))
-    with open('20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss_preds.pkl', 'wb') as f:
-        pickle.dump(all_preds, f)
+    # with open('20171122_lstm_epoch_25_length_4_sgd_preds.pkl', 'wb') as f:
+    #     pickle.dump(all_preds, f)
     print('test completed in: {:2.0f}m{:2.0f}s test loss: {:4.4f} test accu: {:.4f}'
           .format(test_elapsed_time // 60, test_elapsed_time % 60, test_average_loss, test_accuracy))
 

@@ -14,7 +14,8 @@ from torch.nn import DataParallel
 import os
 from PIL import Image
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
 
 import time
 import pickle
@@ -57,8 +58,8 @@ class CholecDataset(Dataset):
 
 # batch_size 要整除gpu个数 以及sequence长度
 sequence_length = 4
-train_batch_size = 100
-val_batch_size = 8
+train_batch_size = 200
+val_batch_size = 16
 lstm_in_dim = 2048
 lstm_out_dim = 512
 optimizer_choice = 0  # 0 for SGD, 1 for Adam89
@@ -81,63 +82,41 @@ class my_resnet(torch.nn.Module):
         # self.task_1 = nn.Sequential()
         # self.task_1.add_module("lstm", nn.LSTM(lstm_in_dim, 7))
         # self.fc = nn.Linear(2048, lstm_in_dim)
-        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim)
+        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
 
         self.hidden = self.init_hidden()
-        # print(len(self.lstm.all_weights))
-        # print(len(self.lstm.all_weights[0]))
-        self.dp = nn.Dropout(p=0.5)
-
         self.fc = nn.Linear(lstm_out_dim, 7)
 
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
-        # init.xavier_normal(self.fc.parameters())
-        # self.count = 0
-        # 多GPU时候.这种赋值方式不成功, 所以尽量取能整除的batch
-        # self.forward_batch_size = 0
 
     def init_hidden(self, hidden_batch_size=1):
         if use_gpu:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda()))
+            return (Variable(torch.zeros(hidden_batch_size, 1, lstm_out_dim).cuda()),
+                    Variable(torch.zeros(hidden_batch_size, 1, lstm_out_dim).cuda()))
         else:
-            return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)),
-                    Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim)))
+            return (Variable(torch.zeros(hidden_batch_size, 1, lstm_out_dim)),
+                    Variable(torch.zeros(hidden_batch_size, 1, lstm_out_dim)))
 
     def forward(self, x):
+        for i in range(len(self.hidden)):
+            self.hidden[i] = self.hidden[i].permute(1, 0, 2).contiguous()
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        # x = self.fc(x)
-        # x = x.view(-1, 100, 1, 1)
-        # print('x', x.size())
-        # self.count += x.size()[0]
-        # self.forward_batch_size = x.size()[0]
 
-        # self.hidden = self.init_hidden(train_batch_size // num_gpu)
-        # print('count', self.count)
-        # 这边会出现问题, 因为view是根据最后一个维度来的,所以顺序不对, permute或者batch_fisrt解决问题
         x = x.view(-1, sequence_length, lstm_in_dim)
-        x = x.permute(1, 0, 2)
         self.lstm.flatten_parameters()
-        y = self.lstm(x)
-        # print('hidden:', self.hidden[0].size())
-        # print(self.hidden[0][0, 28])
-        # print('y:', y.size())
-        # print(y[2,28])
-        # y = y.contiguous().view(num_gpu, sequence_length, -1, 7)
-        # y = y.permute(0, 2, 1, 3).contiguous()
-        # # transpose或者permute会把变量变成非连续(内存)contiguous, 需要加contiguous()来搞定,
-        # # 看来不是内存地址的错,是因为没有写进forward函数里面
-        # 结果什么意思,我为什么遇到原来的错误??? 以后一定切记留下错误的代码作比对
-        # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
-        # y = y.view((train_batch_size, 7))
-        y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
-        y = y.permute(0, 2, 1, 3)
-        y = y.contiguous().view((-1, lstm_out_dim))
+        y, self.hidden = self.lstm(x, self.hidden)
+        # y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
+        # y = y.permute(0, 2, 1, 3)
+        # y = y.contiguous().view((-1, lstm_out_dim))
         # print(y.size())
-        y = self.dp(y)
+        # y = y.contiguous()
+        y = y.contiguous.view(-1, lstm_out_dim)
+        # print(y.size())
         y = self.fc(y)
+        for i in range(len(self.hidden)):
+            self.hidden[i] = self.hidden[i].permute(1, 0, 2).contiguous()
         return y
 
 def get_useful_start_idx(sequence_length, list_each_length):
@@ -336,7 +315,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
             optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
 
-            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
+            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
@@ -384,7 +363,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 inputs = Variable(inputs)
                 labels = Variable(labels_2)
 
-            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
+            model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length)
             # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
 
             outputs = model.forward(inputs)
@@ -427,13 +406,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         all_val_accuracy.append(val_accuracy)
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171122_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
+    # torch.save(model, '20171123_lstm_bf_epoch_25_length_4_sgd_batch_200.pth')
     all_info.append(all_train_accuracy)
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    with open('20171122_epoch_25_pure_cnn_single_adam.pkl', 'wb') as f:
-        pickle.dump(all_info, f)
+    # with open('20171123_lstm_bf_epoch_25_length_4_sgd_batch_200.pkl', 'wb') as f:
+    #     pickle.dump(all_info, f)
     print()
 
 def main():
