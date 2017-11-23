@@ -4,6 +4,7 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 import torch.nn.init as init
+import torch.nn.functional as F
 import numpy as np
 import torchvision
 from torchvision import datasets, models, transforms, utils
@@ -12,25 +13,39 @@ from torchvision.datasets import ImageFolder
 import time
 from torch.nn import DataParallel
 import os
-from PIL import Image
-
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
 import time
 import pickle
-import numpy as np
+import argparse
+from PIL import Image
 
-# print(torch.cuda.device_count())
+parser = argparse.ArgumentParser(description='lstm Training')
+parser.add_argument('-g', '--gpu', default=1, nargs='+', type=int,help='index of gpu to use')
+parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length')
+parser.add_argument('-t', '--train', default=100, type=int, help='train batch size')
+parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size')
+parser.add_argument('-o', '--opt', default=0, type=int, help='0 for sgd 1 for adam')
+parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val')
+
+args = parser.parse_args()
+gpu_usg = ",".join(list(map(str, args.gpu)))
+os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
+sequence_length = args.seq
+train_batch_size = args.train
+val_batch_size = args.val
+optimizer_choice = args.opt
+epochs = args.epo
+
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
+
+lstm_in_dim = 2048
+lstm_out_dim = 512
 
 
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
-
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -55,19 +70,9 @@ class CholecDataset(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
-
-# batch_size 要整除gpu个数 以及sequence长度
-sequence_length = 4
-train_batch_size = 100
-val_batch_size = 8
-lstm_in_dim = 2048
-lstm_out_dim = 512
-optimizer_choice = 0  # 0 for SGD, 1 for Adam89
-
-
-class my_resnet(torch.nn.Module):
+class resnet_lstm(torch.nn.Module):
     def __init__(self):
-        super(my_resnet, self).__init__()
+        super(resnet_lstm, self).__init__()
         resnet = models.resnet50(pretrained=True)
         self.share = torch.nn.Sequential()
         self.share.add_module("conv1", resnet.conv1)
@@ -79,52 +84,19 @@ class my_resnet(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        # self.task_1 = nn.Sequential()
-        # self.task_1.add_module("lstm", nn.LSTM(lstm_in_dim, 7))
-        # self.fc = nn.Linear(2048, lstm_in_dim)
         self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
-
-        # self.hidden = self.init_hidden()
-        # print(len(self.lstm.all_weights))
-        # print(len(self.lstm.all_weights[0]))
         self.fc = nn.Linear(lstm_out_dim, 7)
 
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
-        # init.xavier_normal(self.fc.parameters())
-        # self.count = 0
-        # 多GPU时候.这种赋值方式不成功, 所以尽量取能整除的batch
-        # self.forward_batch_size = 0
-
-    # def init_hidden(self, hidden_batch_size=1):
-    #     if use_gpu:
-    #         return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda(), requires_grad=False),
-    #                 Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim).cuda(), requires_grad=False))
-    #     else:
-    #         return (Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim), requires_grad=False),
-    #                 Variable(torch.zeros(1, hidden_batch_size, lstm_out_dim), requires_grad=False))
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        # x = self.fc(x)
-        # x = x.view(-1, 100, 1, 1)
-        # print('x', x.size())
-        # self.count += x.size()[0]
-        # self.forward_batch_size = x.size()[0]
-
-        # self.hidden = self.init_hidden(train_batch_size // num_gpu)
-        # print('count', self.count)
-        # 这边会出现问题, 因为view是根据最后一个维度来的,所以顺序不对, permute或者batch_fisrt解决问题
         x = x.view(-1, sequence_length, lstm_in_dim)
-        # x = x.permute(1, 0, 2)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
-        # print(y.size())
-        # y = y.view((train_batch_size, 7))
-        # y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
-        # y = y.permute(0, 2, 1, 3)
-        y= y.contiguous().view(-1, lstm_out_dim)
+        y = y.contiguous().view(-1, lstm_out_dim)
         y = self.fc(y)
         return y
 
@@ -136,7 +108,6 @@ def get_useful_start_idx(sequence_length, list_each_length):
             idx.append(j)
         count += list_each_length[i]
     return idx
-
 
 def get_data(data_path):
     with open(data_path, 'rb') as f:
@@ -166,10 +137,6 @@ def get_data(data_path):
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
-    # print(test_labels[0].shape)
-    # print(val_labels[0].shape)
-    # print(test_labels[0].shape)
-
     train_transforms = transforms.Compose([
         transforms.RandomCrop(224),
         transforms.ToTensor(),
@@ -187,6 +154,7 @@ def get_data(data_path):
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
+
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
@@ -194,27 +162,15 @@ def get_data(data_path):
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
 
-
 def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train = len(train_dataset)
     num_val = len(val_dataset)
-    print('num of train:', num_train)
-    train_count = 0
-    for i in range(len(train_num_each)):
-        train_count += train_num_each[i]
-    print('vertify num of train:', train_count)
-    print('num of valid:', num_val)
-    val_count = 0
-    for i in range(len(val_num_each)):
-        val_count += val_num_each[i]
-    print('vertify num of valid:', val_count)
 
     train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
 
     val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
     print('num of useful train start idx:', len(train_useful_start_idx))
     print('the last idx of train start idx:', train_useful_start_idx[-1])
-
     print('num of useful valid start idx:', len(val_useful_start_idx))
     print('the last idx of train start idx:', val_useful_start_idx[-1])
 
@@ -227,12 +183,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
     # 此处可以shuffle train 的idx
-
-
-    # num_train_truth = 12000
-    # num_train_truth = (num_train + 1 - sequence_length) // (train_batch_size // sequence_length) * (train_batch_size // sequence_length)
-    # train_true_start_idx = list(range((num_train_truth)))
-    # train_true_start_idx = list(range(100))
     np.random.seed(0)
     np.random.shuffle(train_we_use_start_idx)
     train_idx = []
@@ -247,19 +197,16 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-    print('num of trainset:', num_train)
-    print('num of train samples we use:', num_train_we_use)
-    print('num of all train samples:', num_train_all)
-    print('train batch size:', train_batch_size)
-    print('sequence length:', sequence_length)
     print('num of gpu:', num_gpu)
+    print('sequence length:', sequence_length)
+    print('num of trainset:', num_train)
+    print('num train we use:', num_train_we_use)
+    print('num train all:', num_train_all)
+    print('train batch size:', train_batch_size)
 
     print('num of valset:', num_val)
-    print('num of val samples we use:', num_val_we_use)
-    print('num of all val samples:', num_val_all)
-
-    # print(train_idx[0:20])
-    # print(val_idx[0:210])
+    print('num val we use:', num_val_we_use)
+    print('num val we use:', num_val_all)
 
     train_loader = DataLoader(
         train_dataset,
@@ -277,22 +224,16 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         num_workers=8,
         pin_memory=False
     )
-    # model = models.resnet50(pretrained=True)
-    # num_ftrs = model.fc.in_features
-    # model.fc = nn.Linear(num_ftrs, 7)
-    model = my_resnet()
+    model = resnet_lstm()
     if use_gpu:
         model = model.cuda()
+
     model = DataParallel(model)
     criterion = nn.CrossEntropyLoss(size_average=False)
-    # 要先将model转换到cuda, 再提供optimizer
-    # for parameter in model.parameters():
-    #     print(parameter)
+
     if optimizer_choice == 0:
         optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-        # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
         exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-        # exp_scheduler = ReduceLROnPlateau(optimizer, 'min') val loss 调用 expscheduler.step(loss)
     elif optimizer_choice == 1:
         optimizer = optim.Adam(model.parameters())
 
@@ -300,17 +241,16 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     best_val_accuracy = 0.0
     correspond_train_acc = 0.0
 
-    epochs = 25
     all_info = []
     all_train_accuracy = []
     all_train_loss = []
     all_val_accuracy = []
     all_val_loss = []
+
     for epoch in range(epochs):
 
         model.train()
-        # if optimizer_choice == 0:
-        # exp_lr_scheduler.step()
+
         train_loss = 0.0
         train_corrects = 0
         train_start_time = time.time()
@@ -324,40 +264,19 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
             optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
 
-            # model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
-            # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
-
             outputs = model.forward(inputs)
-            # print(outputs.size())
-
-            # print(outputs.size())
-
-            # output of lstm 非 congiguous
-            # print(model.module.forward_batch_size)
-            # print(outputs.size())
-            # print(outputs.requires_grad)
-            # print(outputs.size())
-            # print(outputs.data[0])
-            # print(labels.data[0])
-            # print(labels.size())
-            # print(outputs.size())
             _, preds = torch.max(outputs.data, 1)
 
             loss = criterion(outputs, labels)
-            # print(loss)
             loss.backward()
-            # count +=1
             optimizer.step()
             train_loss += loss.data[0]
             train_corrects += torch.sum(preds == labels.data)
-            # print(train_corrects)
         train_elapsed_time = time.time() - train_start_time
         train_accuracy = train_corrects / num_train_all
         train_average_loss = train_loss / num_train_all
 
-        # train_average_loss = train_loss / num_train
-        # print('accuracy', train_accuracy)
-        # print('train loss: {:.4f} accuracy: {:.4f}'.format(train_average_loss, train_accuracy))
+        # begin eval
 
         model.eval()
         val_loss = 0.0
@@ -372,21 +291,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 inputs = Variable(inputs)
                 labels = Variable(labels_2)
 
-            # model.module.hidden = model.module.init_hidden(len(data[0]) // sequence_length // num_gpu)
-            # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
-
             outputs = model.forward(inputs)
-
-            # outputs = outputs.contiguous().view(num_gpu, sequence_length, -1, 7)
-            # outputs = outputs.permute(0, 2, 1, 3)
-            # outputs = outputs.contiguous().view((val_batch_size, 7))
 
             _, preds = torch.max(outputs.data, 1)
 
             loss = criterion(outputs, labels)
             val_loss += loss.data[0]
             val_corrects += torch.sum(preds == labels.data)
-            # print(val_corrects)
         val_elapsed_time = time.time() - val_start_time
         val_accuracy = val_corrects / num_val_all
         val_average_loss = val_loss / num_val_all
@@ -413,14 +324,24 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         all_train_accuracy.append(train_accuracy)
         all_val_loss.append(val_average_loss)
         all_val_accuracy.append(val_accuracy)
+
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    torch.save(model, '20171122_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
+    save_val = int("{:4d}".format(best_val_accuracy * 10000))
+    save_train= int("{:4d}".format(correspond_train_acc * 10000))
+    model_name = "lstm_epoch" + str(epochs) + "_length" + str(
+        sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
+        save_train) + "_val_" + str(save_val) + ".pth"
+
+    torch.save(model, model_name)
     all_info.append(all_train_accuracy)
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    with open('20171122_epoch_25_pure_cnn_single_adam.pkl', 'wb') as f:
+    record_name = "lstm_epoch" + str(epochs) + "_length" + str(
+        sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
+        save_train) + "_val_" + str(save_val) + ".pkl"
+    with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
     print()
 
