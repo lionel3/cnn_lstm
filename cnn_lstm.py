@@ -187,10 +187,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('num of useful valid start idx:', len(val_useful_start_idx))
     print('the last idx of val start idx:', val_useful_start_idx[-1])
 
-    # num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
-    # num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    num_train_we_use = 8000
-    num_val_we_use = 800
+    num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
+    num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
+    #num_train_we_use = 8000
+    #num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
