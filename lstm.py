@@ -25,6 +25,7 @@ parser.add_argument('-t', '--train', default=100, type=int, help='train batch si
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size')
 parser.add_argument('-o', '--opt', default=0, type=int, help='0 for sgd 1 for adam')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val')
+parser.add_argument('-w', '--work', default=4, type=int, help='num of workers to use')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
@@ -37,6 +38,13 @@ epochs = args.epo
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
+print('num_gpu:', num_gpu)
+print('sequence length:', sequence_length)
+print('train batch size:', train_batch_size)
+print('valid batch size:', val_batch_size)
+print('optimizer choice:', optimizer_choice)
+print('num of epochs:',epochs)
+print('num of workers:',args.work)
 
 lstm_in_dim = 2048
 lstm_out_dim = 512
@@ -154,7 +162,7 @@ def get_data(data_path):
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
-
+    
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
@@ -172,19 +180,18 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('num of useful train start idx:', len(train_useful_start_idx))
     print('the last idx of train start idx:', train_useful_start_idx[-1])
     print('num of useful valid start idx:', len(val_useful_start_idx))
-    print('the last idx of train start idx:', val_useful_start_idx[-1])
+    print('the last idx of val start idx:', val_useful_start_idx[-1])
 
-    # num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
-    # num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    num_train_we_use = 8000
-    num_val_we_use = 800
+    num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
+    num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
+    #num_train_we_use = 8000
+    #num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
-    # 此处可以shuffle train 的idx
-    np.random.seed(0)
-    np.random.shuffle(train_we_use_start_idx)
+#    np.random.seed(0)
+    #np.random.shuffle(train_we_use_start_idx)
     train_idx = []
     for i in range(num_train_we_use):
         for j in range(sequence_length):
@@ -197,23 +204,21 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-    print('num of gpu:', num_gpu)
-    print('sequence length:', sequence_length)
     print('num of trainset:', num_train)
     print('num train we use:', num_train_we_use)
     print('num train all:', num_train_all)
-    print('train batch size:', train_batch_size)
+    #print('train batch size:', train_batch_size)
 
     print('num of valset:', num_val)
     print('num val we use:', num_val_we_use)
-    print('num val we use:', num_val_all)
+    print('num val all:', num_val_all)
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=train_batch_size,
         sampler=train_idx,
         # shuffle=True,
-        num_workers=8,
+        num_workers=args.work,
         pin_memory=False
     )
     val_loader = DataLoader(
@@ -221,7 +226,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         batch_size=val_batch_size,
         sampler=val_idx,
         # shuffle=True,
-        num_workers=8,
+        num_workers=args.work,
         pin_memory=False
     )
     model = resnet_lstm()
@@ -248,9 +253,23 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_val_loss = []
 
     for epoch in range(epochs):
-
+        #np.random.seed(epoch)
+        np.random.shuffle(train_we_use_start_idx)
+        train_idx = []
+        for i in range(num_train_we_use):
+            for j in range(sequence_length):
+                train_idx.append(train_we_use_start_idx[i] + j)
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=train_batch_size,
+            sampler=train_idx,
+            # shuffle=True,
+            num_workers=args.work,
+            pin_memory=False
+        )
+        
         model.train()
-
         train_loss = 0.0
         train_corrects = 0
         train_start_time = time.time()
@@ -262,8 +281,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             else:
                 inputs = Variable(inputs)
                 labels = Variable(labels_2)
-            optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
-
+            optimizer.zero_grad()
             outputs = model.forward(inputs)
             _, preds = torch.max(outputs.data, 1)
 
@@ -302,7 +320,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_accuracy = val_corrects / num_val_all
         val_average_loss = val_loss / num_val_all
         print('epoch: {:4d} train completed in: {:2.0f}m{:2.0f}s  train loss: {:4.4f} train accu: {:.4f}'
-              'valid completed in: {:.0f}m{:.0f}s '
+              ' valid completed in: {:2.0f}m{:2.0f}s '
               'valid loss: {:4.4f} valid accu: {:.4f}'.format(epoch, train_elapsed_time // 60, train_elapsed_time % 60,
                                                               train_average_loss, train_accuracy,
                                                               val_elapsed_time // 60, val_elapsed_time % 60,
@@ -327,9 +345,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
-    save_val = int("{:4d}".format(best_val_accuracy * 10000))
-    save_train= int("{:4d}".format(correspond_train_acc * 10000))
-    model_name = "lstm_epoch" + str(epochs) + "_length" + str(
+    save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
+    save_train= int("{:4.0f}".format(correspond_train_acc * 10000))
+    model_name = "lstm_epoch_" + str(epochs) + "_length_" + str(
         sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
         save_train) + "_val_" + str(save_val) + ".pth"
 
@@ -338,7 +356,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    record_name = "lstm_epoch" + str(epochs) + "_length" + str(
+    record_name = "lstm_epoch_" + str(epochs) + "_length_" + str(
         sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
         save_train) + "_val_" + str(save_val) + ".pkl"
     with open(record_name, 'wb') as f:
