@@ -14,7 +14,7 @@ from torch.nn import DataParallel
 import os
 from PIL import Image
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import time
 import pickle
@@ -23,6 +23,8 @@ import numpy as np
 # print(torch.cuda.device_count())
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
+
+from torchvision.transforms import Lambda
 
 
 def pil_loader(path):
@@ -59,11 +61,43 @@ class CholecDataset(Dataset):
 sequence_length = 4
 train_batch_size = 100
 val_batch_size = 8
-test_batch_size = 800
+test_batch_size = 400
 lstm_in_dim = 2048
 lstm_out_dim = 512
 optimizer_choice = 0  # 0 for SGD, 1 for Adam89
 
+
+class CholecDataset(Dataset):
+    def __init__(self, file_paths, file_labels, transform=None,
+                 loader=pil_loader):
+        self.file_paths = file_paths
+        self.file_labels_1 = file_labels[:, range(7)]
+        self.file_labels_2 = file_labels[:, -1]
+        self.transform = transform
+        # self.target_transform=target_transform
+        self.loader = loader
+
+    def __getitem__(self, index):
+        img_names = self.file_paths[index]
+        labels_1 = self.file_labels_1[index]
+        labels_2 = self.file_labels_2[index]
+        imgs = self.loader(img_names)
+        if self.transform is not None:
+            imgs = self.transform(imgs)
+
+        return imgs, labels_1, labels_2
+
+    def __len__(self):
+        return len(self.file_paths)
+
+
+# batch_size 要整除gpu个数 以及sequence长度
+sequence_length = 4
+train_batch_size = 100
+val_batch_size = 8
+lstm_in_dim = 2048
+lstm_out_dim = 512
+optimizer_choice = 0  # 0 for SGD, 1 for Adam89
 
 class my_resnet(torch.nn.Module):
     def __init__(self):
@@ -132,11 +166,12 @@ class my_resnet(torch.nn.Module):
         # 可能错怪地址连续问题了, 很可能是多GPU的错误??? 但是多gpu刚开始结果也是百分之三四十的, 不是百分之四五
         # y = y.view((train_batch_size, 7))
         y = y.contiguous().view(1, sequence_length, -1, lstm_out_dim)
-        y = y.permute(0, 2, 1, 3).contiguous()
-        y = y.view((-1, lstm_out_dim))
+        y = y.permute(0, 2, 1, 3)
+        y = y.contiguous().view((-1, lstm_out_dim))
         # print(y.size())
         y = self.fc(y)
         return y
+
 
 
 def get_useful_start_idx(sequence_length, list_each_length):
@@ -198,9 +233,11 @@ def get_data(data_path):
     ])
 
     test_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.TenCrop(224),
+        Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+        Lambda(lambda crops: torch.stack([transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])(crop) for crop in crops]))
+        # transforms.ToTensor(),
+        # transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
@@ -248,10 +285,10 @@ def test_model(test_dataset, test_num_each):
         batch_size=test_batch_size,
         sampler=test_idx,
         # shuffle=True,
-        num_workers=8,
+        num_workers=16,
         pin_memory=False
     )
-    model = torch.load('20171118_epoch_25_cnn_lstm_fc_length_4_sgd_on_loss.pth')
+    model = torch.load('20171122_lstm_epoch_25_length_4_sgd_valid.pth')
 
     if use_gpu:
         model = model.cuda()
@@ -284,23 +321,18 @@ def test_model(test_dataset, test_num_each):
 
         model.hidden = model.init_hidden(len(data[0]) // sequence_length // num_gpu)
         # 如果不在内部调用, 会出现显存持续增长的问题, 还不知道为什么
-
-        outputs = model.forward(inputs)
-        outputs = outputs[3::4]
-        # print(outputs.size())
-        _, preds = torch.max(outputs.data, 1)
-
-        # all_preds.append(preds[i].numpy() for i in range(len(preds)))
-
-        # print(outputs.size()[0])
-        # print(outputs.data[0].cpu().numpy())
-        # for i in range(outputs.size()[0]):
-        #     all_preds.append(outputs.data[i].cpu().numpy().tolist())
+        for k in range(10):
+            outputs = model.forward(inputs[:,k,:,:,:]).data
+            if k == 0:
+                outputs_sum = outputs
+            else:
+                outputs_sum += outputs
+        outputs_mean = (outputs_sum/10)[3::4]
+        _, preds = torch.max(outputs_mean, 1)
         for i in range(len(preds)):
             all_preds.append(preds[i])
-            # print(labels[i])
         print(len(all_preds))
-        loss = criterion(outputs, labels)
+        loss = criterion(outputs_mean, labels)
         test_loss += loss.data[0] / len(data[0]) * 4
         test_corrects += torch.sum(preds == labels.data)
         # print(test_corrects)
@@ -310,8 +342,8 @@ def test_model(test_dataset, test_num_each):
 
     print(type(all_preds))
     print(len(all_preds))
-    # with open('20171122_lstm_epoch_25_length_4_sgd_preds.pkl', 'wb') as f:
-    #     pickle.dump(all_preds, f)
+    with open('20171122_lstm_epoch_25_length_4_sgd_preds_10.pkl', 'wb') as f:
+        pickle.dump(all_preds, f)
     print('test completed in: {:2.0f}m{:2.0f}s test loss: {:4.4f} test accu: {:.4f}'
           .format(test_elapsed_time // 60, test_elapsed_time % 60, test_average_loss, test_accuracy))
 
