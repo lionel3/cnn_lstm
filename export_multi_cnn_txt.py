@@ -8,7 +8,7 @@ test_paths =train_test_paths_labels[2]
 test_labels =train_test_paths_labels[5]
 
 
-with open('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468_preds_1.pkl', 'rb') as f:
+with open('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647_preds_1.pkl', 'rb') as f:
     ori_preds = pickle.load(f)
 print("num of ori preds", len(ori_preds))
 print("preds example: ", ori_preds[0])
@@ -34,7 +34,6 @@ for i in range(40):
         f.write('\n')
     f.close()
     count += test_num_each[i]
-
 
 
 print('labels:', labels_count)

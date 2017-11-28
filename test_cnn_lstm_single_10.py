@@ -24,7 +24,7 @@ import argparse
 parser = argparse.ArgumentParser(description='cnn_lstm testing')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
-parser.add_argument('-t', '--test', default=800, type=int, help='test batch size, default 800')
+parser.add_argument('-t', '--test', default=80, type=int, help='test batch size, default 80')
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
 
 args = parser.parse_args()
@@ -33,7 +33,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 sequence_length = args.seq
 test_batch_size = args.test
 
-use_10_crop = False
+use_10_crop = True
 lstm_in_dim = 2048
 lstm_out_dim = 512
 
@@ -288,6 +288,8 @@ def test_model(test_dataset, test_num_each):
         test_loss_1 += loss_1.data[0]
         test_loss_2 += loss_2.data[0]
         test_corrects_2 += torch.sum(preds_2 == labels_2.data)
+
+    # save all labels_1 and select
 
     test_elapsed_time = time.time() - test_start_time
     test_accuracy_1 = test_corrects_1 / (num_test_we_use + sequence_length - 1) / 7

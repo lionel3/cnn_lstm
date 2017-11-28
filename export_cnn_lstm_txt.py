@@ -7,9 +7,9 @@ test_num_each = train_test_paths_labels[8]
 test_paths = train_test_paths_labels[2]
 test_labels = train_test_paths_labels[5]
 
-sequence_length = 4
+sequence_length = 10
 
-with open('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468_preds_2.pkl', 'rb') as f:
+with open('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647_preds_1.pkl', 'rb') as f:
     ori_preds = pickle.load(f)
 
 num_labels = len(test_labels)
