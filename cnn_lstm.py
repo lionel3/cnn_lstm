@@ -19,13 +19,13 @@ import argparse
 from PIL import Image
 
 parser = argparse.ArgumentParser(description='lstm Training')
-parser.add_argument('-g', '--gpu', default=1, nargs='+', type=int, help='index of gpu to use')
-parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length')
-parser.add_argument('-t', '--train', default=100, type=int, help='train batch size')
-parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size')
-parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam')
-parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val')
-parser.add_argument('-w', '--work', default=4, type=int, help='num of workers to use')
+parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
+parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
+parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
+parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
+parser.add_argument('-o', '--opt', default=0, type=int, help='0 for sgd 1 for adam, default 1')
+parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
+parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
@@ -135,16 +135,12 @@ def get_data(data_path):
     val_num_each = train_test_paths_labels[7]
     test_num_each = train_test_paths_labels[8]
 
-    print('train_paths:', len(train_paths))
-    print('val_paths:', len(val_paths))
-    print('test_paths:', len(test_paths))
-    print('train_labels:', len(train_labels))
-    print('val_labels:', len(val_labels))
-    print('test_labels:', len(test_labels))
-
-    print('train_num_each:', len(train_num_each))
-    print('val_num_each:', len(val_num_each))
-    print('test_num_each:', len(test_num_each))
+    print('train_paths : {:6d} val_paths : {:6d} test_paths : {:6d} '.format(len(train_paths), len(val_paths),
+                                                                             len(test_paths)))
+    print('train_labels: {:6d} val_labels: {:6d} test_labels: {:6d}'.format(len(train_labels), len(val_labels),
+                                                                            len(test_labels)))
+    print('train_each  : {:6d} val_each  : {:6d} test_each  : {:6d}'.format(len(train_num_each), len(val_num_each),
+                                                                            len(test_num_each)))
 
     train_labels = np.asarray(train_labels, dtype=np.int64)
     val_labels = np.asarray(val_labels, dtype=np.int64)
@@ -182,10 +178,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
 
     val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
-    print('num of useful train start idx:', len(train_useful_start_idx))
-    print('the last idx of train start idx:', train_useful_start_idx[-1])
-    print('num of useful valid start idx:', len(val_useful_start_idx))
-    print('the last idx of val start idx:', val_useful_start_idx[-1])
+    print('num of useful train start idx: {:6d}'.format(len(train_useful_start_idx)))
+    print('the last idx of train start  : {:6d}'.format(train_useful_start_idx[-1]))
+    print('num of useful valid start idx: {:6d}'.format(len(val_useful_start_idx)))
+    print('the last idx of val start idx: {:6d}'.format(val_useful_start_idx[-1]))
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
@@ -209,14 +205,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-    print('num of trainset:', num_train)
-    print('num train we use:', num_train_we_use)
-    print('num train all:', num_train_all)
-    # print('train batch size:', train_batch_size)
+    print('num of trainset : {:6d}'.format(num_train))
+    print('num train we use: {:6d}'.format(num_train_we_use))
+    print('num train all   : {:6d}'.format(num_train_all))
 
-    print('num of valset:', num_val)
-    print('num val we use:', num_val_we_use)
-    print('num val all:', num_val_all)
+    print('num of validset : {:6d}'.format(num_val))
+    print('num valid we use: {:6d}'.format(num_val_we_use))
+    print('num valid all   : {:6d}'.format(num_val_all))
 
     train_loader = DataLoader(
         train_dataset,
@@ -431,7 +426,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
     save_val_1 = int("{:4.0f}".format(best_val_accuracy_1 * 10000))
-    save_val_2 = int("{:4.0f}".format(best_val_accuracy_1 * 10000))
+    save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
     model_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(

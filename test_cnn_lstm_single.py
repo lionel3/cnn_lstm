@@ -149,24 +149,17 @@ def get_data(data_path):
     val_num_each = train_test_paths_labels[7]
     test_num_each = train_test_paths_labels[8]
 
-    print('train_paths:', len(train_paths))
-    print('val_paths:', len(val_paths))
-    print('test_paths:', len(test_paths))
-    print('train_labels:', len(train_labels))
-    print('val_labels:', len(val_labels))
-    print('test_labels:', len(test_labels))
-
-    print('train_num_each:', len(train_num_each))
-    print('val_num_each:', len(val_num_each))
-    print('test_num_each:', len(test_num_each))
+    print('train_paths : {:6d} val_paths : {:6d} test_paths : {:6d} '.format(len(train_paths), len(val_paths), len(test_paths)))
+    print('train_labels: {:6d} val_labels: {:6d} test_labels: {:6d}'.format(len(train_labels), len(val_labels), len(test_labels)))
+    print('train_each  : {:6d} val_each  : {:6d} test_each  : {:6d}'.format(len(train_num_each), len(val_num_each), len(test_num_each)))
 
     train_labels = np.asarray(train_labels, dtype=np.int64)
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
-    print(np.max(train_labels))
-    print(np.max(val_labels))
-    print(np.max(test_labels))
+    # print(np.max(train_labels))
+    # print(np.max(val_labels))
+    # print(np.max(test_labels))
 
     # print(test_labels[0].shape)
     # print(val_labels[0].shape)
@@ -206,17 +199,14 @@ def get_data(data_path):
 
 def test_model(test_dataset, test_num_each):
     num_test = len(test_dataset)
-    print('num of test:', num_test)
     test_count = 0
     for i in range(len(test_num_each)):
         test_count += test_num_each[i]
-    print('vertify num of test:', test_count)
 
     test_useful_start_idx = get_useful_start_idx(sequence_length, test_num_each)
-
-    print('num of useful test start idx:', len(test_useful_start_idx))
-    print('the last idx of test start idx:', test_useful_start_idx[-1])
-
+    print('num of test : {:6d} vertify num: {:6d} num_useful: {:6d} last_index: {:6d}'.format(num_test, test_count,
+                                                                                         len(test_useful_start_idx),
+                                                                                         test_useful_start_idx[-1]))
     num_test_we_use = len(test_useful_start_idx)
     # num_test_we_use = 804
 
@@ -228,12 +218,8 @@ def test_model(test_dataset, test_num_each):
             test_idx.append(test_we_use_start_idx[i] + j)
 
     num_test_all = len(test_idx)
-    print('num of testset:', num_test)
-    print('num of test samples we use:', num_test_we_use)
-    print('num of all test samples:', num_test_all)
-    print('test batch size:', test_batch_size)
-    print('sequence length:', sequence_length)
-    print('num of gpu:', num_gpu)
+    print('num_test: {:6d} num_test_we_use: {:6d} num_test_all: {:6d}'.format(num_test, num_test_we_use, num_test_all))
+    print('num_gpu : {:6d} sequence_length: {:6d} test_batch  : {:6d}'.format(num_gpu, sequence_length, test_batch_size))
 
     # test_sampler = torch.utils.data.sampler.SequentialSampler(test_idx)
     test_loader = DataLoader(
@@ -244,7 +230,7 @@ def test_model(test_dataset, test_num_each):
         num_workers=1,
         pin_memory=False
     )
-    model = torch.load('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468.pth')
+    model = torch.load('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647.pth')
 
     if use_gpu:
         model = model.cuda()
@@ -261,8 +247,14 @@ def test_model(test_dataset, test_num_each):
     test_corrects_2 = 0
 
     test_start_time = time.time()
+    all_preds_1 = []
+    all_preds_2 = []
+
     for data in test_loader:
         inputs, labels_1, labels_2 = data
+
+        labels_1 = labels_1[(sequence_length - 1)::sequence_length]
+        labels_2 = labels_2[(sequence_length - 1)::sequence_length]
         if use_gpu:
             inputs = Variable(inputs.cuda(), volatile=True)
             labels_1 = Variable(labels_1.cuda(), volatile=True)
@@ -274,8 +266,15 @@ def test_model(test_dataset, test_num_each):
 
         outputs_1, outputs_2 = model.forward(inputs)
 
+        outputs_1 = outputs_1[sequence_length-1::sequence_length]
+        outputs_2 = outputs_2[sequence_length-1::sequence_length]
+
         _, preds_2 = torch.max(outputs_2.data, 1)
 
+        for i in range(len(outputs_1)):
+            all_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
+        for i in range(len(preds_2)):
+            all_preds_2.append(preds_2[i])
         sig_out = outputs_1.data.cpu()
         sig_out = sig_f(sig_out)
         preds_1 = torch.ByteTensor(sig_out > 0.5)
@@ -291,15 +290,16 @@ def test_model(test_dataset, test_num_each):
         test_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
     test_elapsed_time = time.time() - test_start_time
-    test_accuracy_1 = test_corrects_1 / num_test_all / 7
-    test_accuracy_2 = test_corrects_2 / num_test_all
-    test_average_loss_1 = test_loss_1 / num_test_all
-    test_average_loss_2 = test_loss_2 / num_test_all
+    test_accuracy_1 = test_corrects_1 / (num_test_we_use + sequence_length - 1) / 7
+    test_accuracy_2 = test_corrects_2 / num_test_we_use
+    test_average_loss_1 = test_loss_1 / (num_test_we_use + sequence_length - 1) / 7
+    test_average_loss_2 = test_loss_2 / num_test_we_use
 
-    # print(type(all_preds))
-    # print(len(all_preds))
-    # with open('', 'wb') as f:
-    #     pickle.dump(all_preds, f)
+    print('preds_1 num: {:6d} preds_2 num: {:6d}'.format(len(all_preds_1), len(all_preds_2)))
+    # with open('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468_preds_1.pkl', 'wb') as f:
+    #     pickle.dump(all_preds_1, f)
+    with open('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647_preds_2.pkl', 'wb') as f:
+        pickle.dump(all_preds_2, f)
 
     print('test completed in: {:2.0f}m{:2.0f}s test loss_1: {:4.4f} test loss_2: {:4.4f} test accu_1: {:.4f} test accu_2: {:.4f}'
           .format(test_elapsed_time // 60, test_elapsed_time % 60, test_average_loss_1, test_average_loss_2, test_accuracy_1, test_accuracy_2))

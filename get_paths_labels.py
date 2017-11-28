@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pickle
 
-root_dir = '/data/lhx/cholec'
+root_dir = '/home/lionel/Desktop/cholec'
 img_dir = os.path.join(root_dir, 'data_resize')
 tool_dir = os.path.join(root_dir, 'tool_annotations')
 phase_dir = os.path.join(root_dir, 'phase_annotations')

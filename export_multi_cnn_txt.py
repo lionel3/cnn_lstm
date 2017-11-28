@@ -8,7 +8,7 @@ test_paths =train_test_paths_labels[2]
 test_labels =train_test_paths_labels[5]
 
 
-with open('20171121_epoch_25_multi_cnn_adam_preds.pkl', 'rb') as f:
+with open('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468_preds_1.pkl', 'rb') as f:
     ori_preds = pickle.load(f)
 print("num of ori preds", len(ori_preds))
 print("preds example: ", ori_preds[0])

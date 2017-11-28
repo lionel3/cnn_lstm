@@ -9,8 +9,7 @@ test_labels = train_test_paths_labels[5]
 
 sequence_length = 4
 
-
-with open('20171122_lstm_epoch_25_length_4_sgd_preds_10.pkl', 'rb') as f:
+with open('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468_preds_2.pkl', 'rb') as f:
     ori_preds = pickle.load(f)
 
 num_labels = len(test_labels)
@@ -33,7 +32,7 @@ if num_labels == (num_preds + (sequence_length - 1) * 40):
         f.write('Frame Phase')
         f.write('\n')
         preds_each = []
-        for j in range(count, count + test_num_each[i] - 3):
+        for j in range(count, count + test_num_each[i] - (sequence_length - 1)):
             if j == count:
                 for k in range(sequence_length - 1):
                     preds_each.append(ori_preds[j])

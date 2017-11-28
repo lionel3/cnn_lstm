@@ -43,8 +43,8 @@ print('sequence length:', sequence_length)
 print('train batch size:', train_batch_size)
 print('valid batch size:', val_batch_size)
 print('optimizer choice:', optimizer_choice)
-print('num of epochs:',epochs)
-print('num of workers:',args.work)
+print('num of epochs:', epochs)
+print('num of workers:', args.work)
 
 lstm_in_dim = 2048
 lstm_out_dim = 512
@@ -54,6 +54,7 @@ def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -78,6 +79,7 @@ class CholecDataset(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
+
 class resnet_lstm(torch.nn.Module):
     def __init__(self):
         super(resnet_lstm, self).__init__()
@@ -92,8 +94,8 @@ class resnet_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
-        self.fc = nn.Linear(lstm_out_dim, 7)
+        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True, bidirectional=True)
+        self.fc = nn.Linear(lstm_out_dim * 2, 7)
 
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
@@ -104,9 +106,10 @@ class resnet_lstm(torch.nn.Module):
         x = x.view(-1, sequence_length, lstm_in_dim)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
-        y = y.contiguous().view(-1, lstm_out_dim)
+        y = y.contiguous().view(-1, lstm_out_dim * 2)
         y = self.fc(y)
         return y
+
 
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
@@ -116,6 +119,7 @@ def get_useful_start_idx(sequence_length, list_each_length):
             idx.append(j)
         count += list_each_length[i]
     return idx
+
 
 def get_data(data_path):
     with open(data_path, 'rb') as f:
@@ -130,12 +134,16 @@ def get_data(data_path):
     val_num_each = train_test_paths_labels[7]
     test_num_each = train_test_paths_labels[8]
 
-    print('train_paths : {:6d} val_paths : {:6d} test_paths : {:6d} '.format(len(train_paths), len(val_paths),
-                                                                             len(test_paths)))
-    print('train_labels: {:6d} val_labels: {:6d} test_labels: {:6d}'.format(len(train_labels), len(val_labels),
-                                                                            len(test_labels)))
-    print('train_each  : {:6d} val_each  : {:6d} test_each  : {:6d}'.format(len(train_num_each), len(val_num_each),
-                                                                            len(test_num_each)))
+    print('train_paths:', len(train_paths))
+    print('val_paths:', len(val_paths))
+    print('test_paths:', len(test_paths))
+    print('train_labels:', len(train_labels))
+    print('val_labels:', len(val_labels))
+    print('test_labels:', len(test_labels))
+
+    print('train_num_each:', len(train_num_each))
+    print('val_num_each:', len(val_num_each))
+    print('test_num_each:', len(test_num_each))
 
     train_labels = np.asarray(train_labels, dtype=np.int64)
     val_labels = np.asarray(val_labels, dtype=np.int64)
@@ -158,7 +166,7 @@ def get_data(data_path):
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
-    
+
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
@@ -173,21 +181,21 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
 
     val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
-    print('num of useful train start idx: {:6d}'.format(len(train_useful_start_idx)))
-    print('the last idx of train start  : {:6d}'.format(train_useful_start_idx[-1]))
-    print('num of useful valid start idx: {:6d}'.format(len(val_useful_start_idx)))
-    print('the last idx of val start idx: {:6d}'.format(val_useful_start_idx[-1]))
+    print('num of useful train start idx:', len(train_useful_start_idx))
+    print('the last idx of train start idx:', train_useful_start_idx[-1])
+    print('num of useful valid start idx:', len(val_useful_start_idx))
+    print('the last idx of val start idx:', val_useful_start_idx[-1])
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    #num_train_we_use = 8000
-    #num_val_we_use = 800
+    # num_train_we_use = 8000
+    # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
-#    np.random.seed(0)
-    #np.random.shuffle(train_we_use_start_idx)
+    #    np.random.seed(0)
+    # np.random.shuffle(train_we_use_start_idx)
     train_idx = []
     for i in range(num_train_we_use):
         for j in range(sequence_length):
@@ -200,13 +208,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-    print('num of trainset : {:6d}'.format(num_train))
-    print('num train we use: {:6d}'.format(num_train_we_use))
-    print('num train all   : {:6d}'.format(num_train_all))
+    print('num of trainset:', num_train)
+    print('num train we use:', num_train_we_use)
+    print('num train all:', num_train_all)
+    # print('train batch size:', train_batch_size)
 
-    print('num of validset : {:6d}'.format(num_val))
-    print('num valid we use: {:6d}'.format(num_val_we_use))
-    print('num valid all   : {:6d}'.format(num_val_all))
+    print('num of valset:', num_val)
+    print('num val we use:', num_val_we_use)
+    print('num val all:', num_val_all)
 
     train_loader = DataLoader(
         train_dataset,
@@ -248,13 +257,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_val_loss = []
 
     for epoch in range(epochs):
-        #np.random.seed(epoch)
+        # np.random.seed(epoch)
         np.random.shuffle(train_we_use_start_idx)
         train_idx = []
         for i in range(num_train_we_use):
             for j in range(sequence_length):
                 train_idx.append(train_we_use_start_idx[i] + j)
-        
+
         train_loader = DataLoader(
             train_dataset,
             batch_size=train_batch_size,
@@ -263,7 +272,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             num_workers=args.work,
             pin_memory=False
         )
-        
+
         model.train()
         train_loss = 0.0
         train_corrects = 0
@@ -341,7 +350,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
-    save_train= int("{:4.0f}".format(correspond_train_acc * 10000))
+    save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
     model_name = "lstm_epoch_" + str(epochs) + "_length_" + str(
         sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
         save_train) + "_val_" + str(save_val) + ".pth"
@@ -358,9 +367,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pickle.dump(all_info, f)
     print()
 
+
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
+
 
 if __name__ == "__main__":
     main()
