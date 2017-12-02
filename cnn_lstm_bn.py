@@ -97,17 +97,22 @@ class resnet_lstm(torch.nn.Module):
         self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
         self.fc = nn.Linear(lstm_out_dim, 7)
         self.fc2 = nn.Linear(2048, 7)
+        self.bn1 = nn.BatchNorm1d(2048)
+        self.relu = nn.ReLU(inplace=True)
+        self.bn2 = nn.BatchNorm1d(512)
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
+        x = self.relu(self.bn1(x))
         z = self.fc2(x)
         x = x.view(-1, sequence_length, lstm_in_dim)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, lstm_out_dim)
+        y = self.relu(self.bn2(y))
         y = self.fc(y)
         return z, y
 

@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pickle
 
-root_dir = '/home/lionel/Desktop/cholec'
+root_dir = '/data/lhx/cholec'
 img_dir = os.path.join(root_dir, 'data_resize')
 tool_dir = os.path.join(root_dir, 'tool_annotations')
 phase_dir = os.path.join(root_dir, 'phase_annotations')
@@ -24,7 +24,6 @@ def get_dirs(root_dir):
     file_names.sort()
     file_paths.sort()
     return file_names, file_paths
-
 
 def get_files(root_dir):
     file_paths = []
@@ -130,7 +129,7 @@ for i in range(40, 48):
 print(len(val_file_paths))
 print(len(val_labels))
 
-for i in range(40, 80):
+for i in range(48, 80):
     test_num_each.append(len(all_info[i]))
     for j in range(len(all_info[i])):
         test_file_paths.append(all_info[i][j][0])
@@ -138,7 +137,6 @@ for i in range(40, 80):
 
 print(len(test_file_paths))
 print(len(test_labels))
-
 
 # for i in range(10):
 #     print(train_file_paths[i], train_labels[i])
@@ -157,7 +155,7 @@ train_val_test_paths_labels.append(train_num_each)
 train_val_test_paths_labels.append(val_num_each)
 train_val_test_paths_labels.append(test_num_each)
 
-with open('train_val_test_paths_labels.pkl', 'wb') as f:
+with open('train40_val8_test32_paths_labels.pkl', 'wb') as f:
     pickle.dump(train_val_test_paths_labels, f)
 
 

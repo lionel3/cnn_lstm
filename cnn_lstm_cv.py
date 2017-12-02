@@ -55,7 +55,6 @@ def pil_loader(path):
         with Image.open(f) as img:
             return img.convert('RGB')
 
-
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
                  loader=pil_loader):

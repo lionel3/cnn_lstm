@@ -55,7 +55,6 @@ def pil_loader(path):
         with Image.open(f) as img:
             return img.convert('RGB')
 
-
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
                  loader=pil_loader):
@@ -97,17 +96,21 @@ class resnet_lstm(torch.nn.Module):
         self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
         self.fc = nn.Linear(lstm_out_dim, 7)
         self.fc2 = nn.Linear(2048, 7)
+        self.dp = nn.Dropout(p=0.5)
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
+        x = F.relu(x)
         z = self.fc2(x)
         x = x.view(-1, sequence_length, lstm_in_dim)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, lstm_out_dim)
+        y = F.relu(y)
+        y = self.dp(y)
         y = self.fc(y)
         return z, y
 

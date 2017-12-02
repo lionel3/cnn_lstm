@@ -20,12 +20,14 @@ import time
 import pickle
 import numpy as np
 import argparse
+import random
 
 parser = argparse.ArgumentParser(description='cnn_lstm testing')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--test', default=80, type=int, help='test batch size, default 80')
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
+parser.add_argument('-a', '--average', default=False, type=bool, help='whether to use 10 crop, default False')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
@@ -33,7 +35,8 @@ os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 sequence_length = args.seq
 test_batch_size = args.test
 
-use_10_crop = True
+use_10_crop = args.average
+print(use_10_crop)
 lstm_in_dim = 2048
 lstm_out_dim = 512
 
@@ -42,10 +45,12 @@ use_gpu = torch.cuda.is_available()
 
 from torchvision.transforms import Lambda
 
+
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -69,6 +74,7 @@ class CholecDataset(Dataset):
 
     def __len__(self):
         return len(self.file_paths)
+
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -182,7 +188,8 @@ def get_data(data_path):
             transforms.TenCrop(224),
             Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
             Lambda(
-                lambda crops: torch.stack([transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])(crop) for crop in crops]))
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])(crop) for crop in crops]))
         ])
     else:
         test_transforms = transforms.Compose([
@@ -197,6 +204,7 @@ def get_data(data_path):
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
+
 def test_model(test_dataset, test_num_each):
     num_test = len(test_dataset)
     test_count = 0
@@ -205,8 +213,8 @@ def test_model(test_dataset, test_num_each):
 
     test_useful_start_idx = get_useful_start_idx(sequence_length, test_num_each)
     print('num of test : {:6d} vertify num: {:6d} num_useful: {:6d} last_index: {:6d}'.format(num_test, test_count,
-                                                                                         len(test_useful_start_idx),
-                                                                                         test_useful_start_idx[-1]))
+                                                                                              len(test_useful_start_idx),
+                                                                                              test_useful_start_idx[-1]))
     num_test_we_use = len(test_useful_start_idx)
     # num_test_we_use = 804
 
@@ -219,7 +227,8 @@ def test_model(test_dataset, test_num_each):
 
     num_test_all = len(test_idx)
     print('num_test: {:6d} num_test_we_use: {:6d} num_test_all: {:6d}'.format(num_test, num_test_we_use, num_test_all))
-    print('num_gpu : {:6d} sequence_length: {:6d} test_batch  : {:6d}'.format(num_gpu, sequence_length, test_batch_size))
+    print(
+        'num_gpu : {:6d} sequence_length: {:6d} test_batch  : {:6d}'.format(num_gpu, sequence_length, test_batch_size))
 
     # test_sampler = torch.utils.data.sampler.SequentialSampler(test_idx)
     test_loader = DataLoader(
@@ -248,48 +257,142 @@ def test_model(test_dataset, test_num_each):
 
     test_start_time = time.time()
     all_preds_1 = []
+    all_labels_1 = []
     all_preds_2 = []
 
     for data in test_loader:
         inputs, labels_1, labels_2 = data
 
-        labels_1 = labels_1[(sequence_length - 1)::sequence_length]
-        labels_2 = labels_2[(sequence_length - 1)::sequence_length]
-        if use_gpu:
-            inputs = Variable(inputs.cuda(), volatile=True)
-            labels_1 = Variable(labels_1.cuda(), volatile=True)
-            labels_2 = Variable(labels_2.cuda(), volatile=True)
+        if use_10_crop:
+            # labels_1 = labels_1[(sequence_length - 1)::sequence_length]
+            # shuffle_idx = []
+            # for i in range(inputs.size()[0]):
+            #     temp_idx = [i for i in range(10 * i, 10 * i + 10)]
+            #     random.shuffle(temp_idx)
+            #     shuffle_idx.extend(temp_idx)
+            # print(shuffle_idx[0])
+            # print(shuffle_idx[1])
+            # x = shuffle_idx[0]
+            # y = shuffle_idx[1]
+            # print(inputs.size())
+            # inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+            # print(inputs.size())
+            # inputs = inputs.view(-1, 3, 224, 224)
+            # print(inputs[x, 0, 0, 0])
+            # print(inputs[y, 0, 0, 0])
+            # inputs = inputs[np.asarray(shuffle_idx, dtype=int)]
+            # print(inputs[0, 0, 0, 0])
+            # print(inputs[1, 0, 0, 0])
+            # print(inputs.size())
+            labels_2 = labels_2[(sequence_length - 1)::sequence_length]
+
+            for i in range(10):
+                if use_gpu:
+                    inputs_temp = Variable(inputs[:, i, :, :, :].cuda(), volatile=True)
+                else:
+                    inputs_temp = Variable(inputs, volatile=True)
+                outputs_1_temp, outputs_2_temp = model.forward(inputs_temp)
+                if i == 0:
+                    outputs_1 = outputs_1_temp
+                    outputs_2 = outputs_2_temp
+                else:
+                    outputs_1 = torch.cat((outputs_1, outputs_1_temp), 0)
+                    outputs_2 = torch.cat((outputs_2, outputs_2_temp), 0)
+            # print(outputs_1.size())
+            outputs_1 = outputs_1.view(10, -1, 7)
+            outputs_2 = outputs_2.view(10, -1, 7)
+            # print(outputs_1.size())
+            outputs_1 = torch.mean(outputs_1, 0)
+            outputs_2 = torch.mean(outputs_2, 0)
+            # print(outputs_1.size())
+            # print(outputs_2.size())
+            if use_gpu:
+                labels_1 = Variable(labels_1.cuda(), volatile=True)
+                labels_2 = Variable(labels_2.cuda(), volatile=True)
+            else:
+                labels_1 = Variable(labels_1, volatile=True)
+                labels_2 = Variable(labels_2, volatile=True)
+
+            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
+            _, preds_2 = torch.max(outputs_2.data, 1)
+
+            for i in range(len(outputs_1)):
+                all_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
+                all_labels_1.append(labels_1[i].data.cpu().numpy().tolist())
+            for i in range(len(preds_2)):
+                all_preds_2.append(preds_2[i])
+            print('preds_1: {:6d} preds_2: {:6d}'.format(len(all_preds_1), len(all_preds_2)))
+
+            labels_1 = Variable(labels_1.data.float())
+            loss_1 = criterion_1(outputs_1, labels_1)
+            loss_2 = criterion_2(outputs_2, labels_2)
+
+            test_loss_1 += loss_1.data[0]
+            test_loss_2 += loss_2.data[0]
+            test_corrects_2 += torch.sum(preds_2 == labels_2.data)
+
         else:
-            inputs = Variable(inputs, volatile=True)
-            labels_1 = Variable(labels_1, volatile=True)
-            labels_2 = Variable(labels_2, volatile=True)
 
-        outputs_1, outputs_2 = model.forward(inputs)
+            # labels_1 = labels_1[(sequence_length - 1)::sequence_length]
+            labels_2 = labels_2[(sequence_length - 1)::sequence_length]
+            if use_gpu:
+                inputs = Variable(inputs.cuda(), volatile=True)
+                labels_1 = Variable(labels_1.cuda(), volatile=True)
+                labels_2 = Variable(labels_2.cuda(), volatile=True)
+            else:
+                inputs = Variable(inputs, volatile=True)
+                labels_1 = Variable(labels_1, volatile=True)
+                labels_2 = Variable(labels_2, volatile=True)
 
-        outputs_1 = outputs_1[sequence_length-1::sequence_length]
-        outputs_2 = outputs_2[sequence_length-1::sequence_length]
+            outputs_1, outputs_2 = model.forward(inputs)
 
-        _, preds_2 = torch.max(outputs_2.data, 1)
+            # outputs_1 = outputs_1[sequence_length-1::sequence_length]
+            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
 
-        for i in range(len(outputs_1)):
-            all_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
-        for i in range(len(preds_2)):
-            all_preds_2.append(preds_2[i])
-        sig_out = outputs_1.data.cpu()
-        sig_out = sig_f(sig_out)
-        preds_1 = torch.ByteTensor(sig_out > 0.5)
-        preds_1 = preds_1.long()
-        test_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())
-        labels_1 = Variable(labels_1.data.float())
+            _, preds_2 = torch.max(outputs_2.data, 1)
 
-        loss_1 = criterion_1(outputs_1, labels_1)
-        loss_2 = criterion_2(outputs_2, labels_2)
+            for i in range(len(outputs_1)):
+                all_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
+                all_labels_1.append(labels_1[i].data.cpu().numpy().tolist())
+            for i in range(len(preds_2)):
+                all_preds_2.append(preds_2[i])
+            print('preds_1: {:6d} preds_2: {:6d}'.format(len(all_preds_1), len(all_preds_2)))
 
-        test_loss_1 += loss_1.data[0]
-        test_loss_2 += loss_2.data[0]
-        test_corrects_2 += torch.sum(preds_2 == labels_2.data)
+            labels_1 = Variable(labels_1.data.float())
+            loss_1 = criterion_1(outputs_1, labels_1)
+            loss_2 = criterion_2(outputs_2, labels_2)
 
-    # save all labels_1 and select
+            test_loss_1 += loss_1.data[0]
+            test_loss_2 += loss_2.data[0]
+            test_corrects_2 += torch.sum(preds_2 == labels_2.data)
+
+    all_preds_1_cor = []
+    all_labels_1_cor = []
+    cor_count = 0
+    for i in range(len(test_num_each)):
+        for j in range(cor_count, cor_count + test_num_each[i] - (sequence_length - 1)):
+            if j == cor_count:
+                for k in range(sequence_length - 1):
+                    all_preds_1_cor.append(all_preds_1[sequence_length * j + k])
+                    all_labels_1_cor.append(all_labels_1[sequence_length * j + k])
+            all_preds_1_cor.append(all_preds_1[sequence_length * j + sequence_length - 1])
+            all_labels_1_cor.append(all_labels_1[sequence_length * j + sequence_length - 1])
+        cor_count += test_num_each[i] + 1 - sequence_length
+
+    print('all_preds_1 : {:6d}'.format(len(all_preds_1)))
+    print('all_labels_1: {:6d}'.format(len(all_labels_1)))
+    print('cor_labels_1: {:6d}'.format(len(all_preds_1_cor)))
+    print('cor_labels_1: {:6d}'.format(len(all_labels_1_cor)))
+
+    pt_preds_1 = torch.from_numpy(np.asarray(all_preds_1_cor, dtype=np.float32))
+    pt_labels_1 = torch.from_numpy(np.asarray(all_labels_1_cor, dtype=np.float32))
+    print('pt preds_1 :', pt_preds_1.size())
+    print('pt labels_1:', pt_labels_1.size())
+    sig_out = sig_f(pt_preds_1)
+    preds_cor = torch.ByteTensor(sig_out > 0.5)
+    preds_cor = preds_cor.long()
+    pt_labels_1 = pt_labels_1.long()
+    test_corrects_1 += torch.sum(preds_cor == pt_labels_1)
 
     test_elapsed_time = time.time() - test_start_time
     test_accuracy_1 = test_corrects_1 / (num_test_we_use + sequence_length - 1) / 7
@@ -297,14 +400,15 @@ def test_model(test_dataset, test_num_each):
     test_average_loss_1 = test_loss_1 / (num_test_we_use + sequence_length - 1) / 7
     test_average_loss_2 = test_loss_2 / num_test_we_use
 
-    print('preds_1 num: {:6d} preds_2 num: {:6d}'.format(len(all_preds_1), len(all_preds_2)))
-    # with open('cnn_lstm_epoch_25_length_4_opt_1_batch_200_train1_9951_train2_9800_val1_9680_val2_8468_preds_1.pkl', 'wb') as f:
+    print('preds_1 num: {:6d} preds_2 num: {:6d}'.format(len(all_preds_1_cor), len(all_preds_2)))
+    # with open('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647_preds_10_1.pkl', 'wb') as f:
     #     pickle.dump(all_preds_1, f)
-    with open('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647_preds_2.pkl', 'wb') as f:
-        pickle.dump(all_preds_2, f)
+    # with open('cnn_lstm_epoch_25_length_10_opt_1_batch_400_train1_9993_train2_9971_val1_9692_val2_8647_preds_10_2.pkl', 'wb') as f:
+    #     pickle.dump(all_preds_2, f)
 
     print('test completed in: {:2.0f}m{:2.0f}s test loss_1: {:4.4f} test loss_2: {:4.4f} test accu_1: {:.4f} test accu_2: {:.4f}'
           .format(test_elapsed_time // 60, test_elapsed_time % 60, test_average_loss_1, test_average_loss_2, test_accuracy_1, test_accuracy_2))
+
 
 print()
 

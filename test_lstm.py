@@ -232,6 +232,10 @@ def get_data(data_path):
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
+    for i in range(len(train_num_each)):
+        print(train_num_each[i])
+    for i in range(len(test_num_each)):
+        print(test_num_each[i])
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
 
@@ -298,7 +302,7 @@ def test_model(test_dataset, test_num_each):
 
     for data in test_loader:
         inputs, labels_1, labels_2 = data
-        labels_2 = labels_2[3::4]
+        labels_2 = labels_2[(sequence_length-1)::sequence_length]
         if use_gpu:
             inputs = Variable(inputs.cuda(), volatile=True)
             labels = Variable(labels_2.cuda(), volatile=True)
@@ -336,7 +340,7 @@ def test_model(test_dataset, test_num_each):
 
         # print(labels.size())
         # print(outputs.size())
-        outputs = outputs[3::4]
+        outputs = outputs[sequence_length-1::sequence_length]
         # print(outputs.size())
         # print(labels.size())
         _, preds = torch.max(outputs.data, 1)
