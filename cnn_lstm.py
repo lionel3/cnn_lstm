@@ -4,19 +4,18 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 import torch.nn.init as init
-import torch.nn.functional as F
-import numpy as np
 import torchvision
 from torchvision import datasets, models, transforms, utils
 from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets import ImageFolder
-import time
 from torch.nn import DataParallel
 import os
+from PIL import Image
 import time
 import pickle
+import numpy as np
 import argparse
-from PIL import Image
+from torchvision.transforms import Lambda
 
 parser = argparse.ArgumentParser(description='lstm Training')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
@@ -47,6 +46,7 @@ print('sequence length : {:6d}'.format(sequence_length))
 print('train batch size: {:6d}'.format(train_batch_size))
 print('valid batch size: {:6d}'.format(val_batch_size))
 print('optimizer choice: {:6d}'.format(optimizer_choice))
+print('multiple optim  : {:6d}'.format(multi_optim))
 print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
 
@@ -112,7 +112,6 @@ class multi_lstm(torch.nn.Module):
         y = self.fc(y)
         return z, y
 
-
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
     idx = []
@@ -136,12 +135,12 @@ def get_data(data_path):
     val_num_each = train_test_paths_labels[7]
     test_num_each = train_test_paths_labels[8]
 
-    print('train_paths : {:6d} val_paths : {:6d} test_paths : {:6d} '.format(len(train_paths), len(val_paths),
-                                                                             len(test_paths)))
-    print('train_labels: {:6d} val_labels: {:6d} test_labels: {:6d}'.format(len(train_labels), len(val_labels),
-                                                                            len(test_labels)))
-    print('train_each  : {:6d} val_each  : {:6d} test_each  : {:6d}'.format(len(train_num_each), len(val_num_each),
-                                                                            len(test_num_each)))
+    print('train_paths  : {:6d}'.format(len(train_paths)))
+    print('train_labels : {:6d}'.format(len(train_labels)))
+    print('valid_paths  : {:6d}'.format(len(val_paths)))
+    print('valid_labels : {:6d}'.format(len(val_labels)))
+    print('test_paths   : {:6d}'.format(len(test_paths)))
+    print('test_labels  : {:6d}'.format(len(test_labels)))
 
     train_labels = np.asarray(train_labels, dtype=np.int64)
     val_labels = np.asarray(val_labels, dtype=np.int64)
@@ -179,10 +178,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
 
     val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
-    print('num of useful train start idx: {:6d}'.format(len(train_useful_start_idx)))
-    print('the last idx of train start  : {:6d}'.format(train_useful_start_idx[-1]))
-    print('num of useful valid start idx: {:6d}'.format(len(val_useful_start_idx)))
-    print('the last idx of val start idx: {:6d}'.format(val_useful_start_idx[-1]))
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
@@ -206,19 +201,22 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-    print('num of trainset : {:6d}'.format(num_train))
-    print('num train we use: {:6d}'.format(num_train_we_use))
-    print('num train all   : {:6d}'.format(num_train_all))
 
-    print('num of validset : {:6d}'.format(num_val))
-    print('num valid we use: {:6d}'.format(num_val_we_use))
-    print('num valid all   : {:6d}'.format(num_val_all))
+    print('num train start idx : {:6d}'.format(len(train_useful_start_idx)))
+    print('last idx train start: {:6d}'.format(train_useful_start_idx[-1]))
+    print('num of train dataset: {:6d}'.format(num_train))
+    print('num of train we use : {:6d}'.format(num_train_we_use))
+    print('num of all train use: {:6d}'.format(num_train_all))
+    print('num valid start idx : {:6d}'.format(len(val_useful_start_idx)))
+    print('last idx valid start: {:6d}'.format(val_useful_start_idx[-1]))
+    print('num of valid dataset: {:6d}'.format(num_val))
+    print('num of valid we use : {:6d}'.format(num_val_we_use))
+    print('num of all valid use: {:6d}'.format(num_val_all))
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=train_batch_size,
         sampler=train_idx,
-        # shuffle=True,
         num_workers=workers,
         pin_memory=False
     )
@@ -226,7 +224,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_dataset,
         batch_size=val_batch_size,
         sampler=val_idx,
-        # shuffle=True,
         num_workers=workers,
         pin_memory=False
     )
@@ -263,7 +260,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     best_model_wts = model.state_dict()
     best_val_accuracy_1 = 0.0
-    best_val_accuracy_2 = 0.0  #judge by accu2
+    best_val_accuracy_2 = 0.0  # judge by accu2
     correspond_train_acc_1 = 0.0
     correspond_train_acc_2 = 0.0
 
@@ -289,7 +286,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_dataset,
             batch_size=train_batch_size,
             sampler=train_idx,
-            # shuffle=True,
             num_workers=args.work,
             pin_memory=False
         )
@@ -338,7 +334,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_elapsed_time = time.time() - train_start_time
         train_accuracy_1 = train_corrects_1 / num_train_all / 7
         train_accuracy_2 = train_corrects_2 / num_train_all
-        train_average_loss_1 = train_loss_1 / num_train_all
+        train_average_loss_1 = train_loss_1 / num_train_all / 7
         train_average_loss_2 = train_loss_2 / num_train_all
 
         # begin eval
@@ -374,7 +370,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             loss_1 = criterion_1(outputs_1, labels_1)
             loss_2 = criterion_2(outputs_2, labels_2)
-            loss = loss_1 + loss_2
 
             val_loss_1 += loss_1.data[0]
             val_loss_2 += loss_2.data[0]
@@ -382,20 +377,41 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_elapsed_time = time.time() - val_start_time
         val_accuracy_1 = val_corrects_1 / num_val_all / 7
         val_accuracy_2 = val_corrects_2 / num_val_all
-        val_average_loss_1 = val_loss_1 / num_val_all
+        val_average_loss_1 = val_loss_1 / num_val_all / 7
         val_average_loss_2 = val_loss_2 / num_val_all
-        print('epoch: {:4d} train time: {:2.0f}m{:2.0f}s  train loss_1: {:4.4f} train accu_1: {:.4f}'
+        print('epoch: {:4d} '
+              'train time: {:2.0f}m{:2.0f}s'
+              ' train loss_1: {:4.4f}'
+              ' train accu_1: {:.4f}'
               ' valid time: {:2.0f}m{:2.0f}s'
-              ' valid loss_1: {:4.4f} valid accu_1: {:.4f}'.format(epoch, train_elapsed_time // 60, train_elapsed_time % 60,
-                                                              train_average_loss_1, train_accuracy_1,
-                                                              val_elapsed_time // 60, val_elapsed_time % 60,
-                                                              val_average_loss_1, val_accuracy_1))
-        print('epoch: {:4d} train time: {:2.0f}m{:2.0f}s  train loss_2: {:4.4f} train accu_2: {:.4f}'
+              ' valid loss_1: {:4.4f}'
+              ' valid accu_1: {:.4f}'
+              .format(epoch,
+                      train_elapsed_time // 60,
+                      train_elapsed_time % 60,
+                      train_average_loss_1,
+                      train_accuracy_1,
+                      val_elapsed_time // 60,
+                      val_elapsed_time % 60,
+                      val_average_loss_1,
+                      val_accuracy_1))
+        print('epoch: {:4d}'
+              ' train time: {:2.0f}m{:2.0f}s'
+              ' train loss_2: {:4.4f}'
+              ' train accu_2: {:.4f}'
               ' valid time: {:2.0f}m{:2.0f}s'
-              ' valid loss_2: {:4.4f} valid accu_2: {:.4f}'.format(epoch, train_elapsed_time // 60, train_elapsed_time % 60,
-                                                              train_average_loss_2, train_accuracy_2,
-                                                              val_elapsed_time // 60, val_elapsed_time % 60,
-                                                              val_average_loss_2, val_accuracy_2))
+              ' valid loss_2: {:4.4f}'
+              ' valid accu_2: {:.4f}'
+              .format(epoch,
+                      train_elapsed_time // 60,
+                      train_elapsed_time % 60,
+                      train_average_loss_2,
+                      train_accuracy_2,
+                      val_elapsed_time // 60,
+                      val_elapsed_time % 60,
+                      val_average_loss_2,
+                      val_accuracy_2))
+
         if optimizer_choice == 0:
             exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
 
@@ -446,15 +462,32 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    model_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
-        sequence_length) + "_opt_" + str(optimizer_choice) + "_mulopt_" + str(multi_optim) + "_batch_" + str(train_batch_size) + "_train1_" + str(
-        save_train_1) + "_train2_" + str(save_train_2) + "_val1_" + str(save_val_1) +"_val2_" + str(save_val_2)+ ".pth"
+    model_name = "cnn_lstm" \
+                 + "_epoch_" + str(epochs) \
+                 + "_length_" + str(sequence_length) \
+                 + "_opt_" + str(optimizer_choice) \
+                 + "_mulopt_" + str(multi_optim) \
+                 + "_batch_" + str(train_batch_size) \
+                 + "_train1_" + str(save_train_1) \
+                 + "_train2_" + str(save_train_2) \
+                 + "_val1_" + str(save_val_1) \
+                 + "_val2_" + str(save_val_2)\
+                 + ".pth"
 
     torch.save(model, model_name)
 
-    record_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
-        sequence_length) + "_opt_" + str(optimizer_choice) + "_mulopt_" + str(multi_optim) + "_batch_" + str(train_batch_size) + "_train1_" + str(
-        save_train_1) + "_train2_" + str(save_train_2) + "_val1_" + str(save_val_1) +"_val2_" + str(save_val_2) + ".pkl"
+    record_name = "cnn_lstm" \
+                  + "_epoch_" + str(epochs) \
+                  + "_length_" + str(sequence_length) \
+                  + "_opt_" + str(optimizer_choice) \
+                  + "_mulopt_" + str(multi_optim) \
+                  + "_batch_" + str(train_batch_size) \
+                  + "_train1_" + str(save_train_1) \
+                  + "_train2_" + str(save_train_2) \
+                  + "_val1_" + str(save_val_1) \
+                  + "_val2_" + str(save_val_2) \
+                  + ".pkl"
+
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
     print()
