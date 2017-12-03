@@ -23,7 +23,7 @@ parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
-parser.add_argument('-o', '--opt', default=0, type=int, help='0 for sgd 1 for adam, default 1')
+parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam, default 1')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
 parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
 
@@ -35,20 +35,17 @@ train_batch_size = args.train
 val_batch_size = args.val
 optimizer_choice = args.opt
 epochs = args.epo
+workers = args.work
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
-print('num_gpu:', num_gpu)
-print('sequence length:', sequence_length)
-print('train batch size:', train_batch_size)
-print('valid batch size:', val_batch_size)
-print('optimizer choice:', optimizer_choice)
-print('num of epochs:',epochs)
-print('num of workers:',args.work)
-
-lstm_in_dim = 2048
-lstm_out_dim = 512
-
+print('number of gpu   : {:6d}'.format(num_gpu))
+print('sequence length : {:6d}'.format(sequence_length))
+print('train batch size: {:6d}'.format(train_batch_size))
+print('valid batch size: {:6d}'.format(val_batch_size))
+print('optimizer choice: {:6d}'.format(optimizer_choice))
+print('num of epochs   : {:6d}'.format(epochs))
+print('num of workers  : {:6d}'.format(workers))
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -62,7 +59,6 @@ class CholecDataset(Dataset):
         self.file_labels_1 = file_labels[:, range(7)]
         self.file_labels_2 = file_labels[:, -1]
         self.transform = transform
-        # self.target_transform=target_transform
         self.loader = loader
 
     def __getitem__(self, index):
@@ -92,19 +88,20 @@ class resnet_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
-        self.fc = nn.Linear(lstm_out_dim, 7)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.fc = nn.Linear(512, 7)
 
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
+        init.xavier_uniform(self.fc.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        x = x.view(-1, sequence_length, lstm_in_dim)
+        x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
-        y = y.contiguous().view(-1, lstm_out_dim)
+        y = y.contiguous().view(-1, 512)
         y = self.fc(y)
         return y
 
@@ -144,21 +141,21 @@ def get_data(data_path):
     train_transforms = transforms.Compose([
         transforms.RandomCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
     val_transforms = transforms.Compose([
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
     test_transforms = transforms.Compose([
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
-    
+
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
@@ -180,14 +177,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    #num_train_we_use = 8000
-    #num_val_we_use = 800
+    # num_train_we_use = 8000
+    # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
-#    np.random.seed(0)
-    #np.random.shuffle(train_we_use_start_idx)
+    #    np.random.seed(0)
+    # np.random.shuffle(train_we_use_start_idx)
     train_idx = []
     for i in range(num_train_we_use):
         for j in range(sequence_length):
@@ -213,7 +210,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         batch_size=train_batch_size,
         sampler=train_idx,
         # shuffle=True,
-        num_workers=args.work,
+        num_workers=workers,
         pin_memory=False
     )
     val_loader = DataLoader(
@@ -221,7 +218,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         batch_size=val_batch_size,
         sampler=val_idx,
         # shuffle=True,
-        num_workers=args.work,
+        num_workers=workers,
         pin_memory=False
     )
     model = resnet_lstm()
@@ -248,13 +245,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_val_loss = []
 
     for epoch in range(epochs):
-        #np.random.seed(epoch)
+        # np.random.seed(epoch)
         np.random.shuffle(train_we_use_start_idx)
         train_idx = []
         for i in range(num_train_we_use):
             for j in range(sequence_length):
                 train_idx.append(train_we_use_start_idx[i] + j)
-        
+
         train_loader = DataLoader(
             train_dataset,
             batch_size=train_batch_size,
@@ -263,7 +260,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             num_workers=args.work,
             pin_memory=False
         )
-        
+
         model.train()
         train_loss = 0.0
         train_corrects = 0
@@ -341,7 +338,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     model.load_state_dict(best_model_wts)
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
-    save_train= int("{:4.0f}".format(correspond_train_acc * 10000))
+    save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
     model_name = "lstm_epoch_" + str(epochs) + "_length_" + str(
         sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
         save_train) + "_val_" + str(save_val) + ".pth"
@@ -357,6 +354,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
     print()
+
 
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')

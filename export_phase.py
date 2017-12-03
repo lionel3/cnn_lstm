@@ -1,6 +1,6 @@
 import pickle
 
-with open('train40_val8_test32_paths_labels.pkl', 'rb') as f:
+with open('train_val_test_paths_labels.pkl', 'rb') as f:
     train_test_paths_labels = pickle.load(f)
 
 test_num_each = train_test_paths_labels[8]
@@ -9,7 +9,8 @@ test_labels = train_test_paths_labels[5]
 
 sequence_length = 10
 
-with open('cnn_lstm_epoch_50_length_10_opt_1_batch_400_train1_9981_train2_9926_val1_9701_val2_8689_preds_2.pkl', 'rb') as f:
+pred_name = '20171122_lstm_epoch_25_length_4_sgd_preds_10.pkl'
+with open(pred_name, 'rb') as f:
     ori_preds = pickle.load(f)
 
 num_labels = len(test_labels)

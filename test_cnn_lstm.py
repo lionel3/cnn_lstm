@@ -26,12 +26,22 @@ parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--test', default=800, type=int, help='test batch size, default 800')
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
+parser.add_argument('-m', '--model', type=str, help='name of model')
+
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
 os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 sequence_length = args.seq
 test_batch_size = args.test
+model_name = args.model
+
+# print(model_name)
+model_pure_name, _ = os.path.splitext(model_name)
+pred_1_name = model_pure_name + '_pred_1.pkl'
+pred_2_name = model_pure_name + '_pred_2.pkl'
+# print(pred_1_name)
+# print(pred_2_name)
 
 use_10_crop = False
 lstm_in_dim = 2048
@@ -168,27 +178,28 @@ def get_data(data_path):
     train_transforms = transforms.Compose([
         transforms.RandomCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
     val_transforms = transforms.Compose([
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
+
     if use_10_crop:
 
         test_transforms = transforms.Compose([
             transforms.TenCrop(224),
             Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
             Lambda(
-                lambda crops: torch.stack([transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])(crop) for crop in crops]))
+                lambda crops: torch.stack([transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
         ])
     else:
         test_transforms = transforms.Compose([
             transforms.CenterCrop(224),
             transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
 
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
@@ -230,7 +241,8 @@ def test_model(test_dataset, test_num_each):
         num_workers=1,
         pin_memory=False
     )
-    model = torch.load('cnn_lstm_epoch_50_length_10_opt_1_batch_400_train1_9981_train2_9926_val1_9701_val2_8689.pth')
+    model = torch.load(model_name)
+
 
     if use_gpu:
         model = model.cuda()
@@ -322,9 +334,9 @@ def test_model(test_dataset, test_num_each):
     test_average_loss_2 = test_loss_2 / num_test_we_use
 
     print('preds_1 num: {:6d} preds_2 num: {:6d}'.format(len(all_preds_1_cor), len(all_preds_2)))
-    with open('cnn_lstm_epoch_50_length_10_opt_1_batch_400_train1_9981_train2_9926_val1_9701_val2_8689_preds_1.pkl', 'wb') as f:
+    with open(pred_1_name, 'wb') as f:
         pickle.dump(all_preds_1_cor, f)
-    with open('cnn_lstm_epoch_50_length_10_opt_1_batch_400_train1_9981_train2_9926_val1_9701_val2_8689_preds_2.pkl', 'wb') as f:
+    with open(pred_2_name, 'wb') as f:
         pickle.dump(all_preds_2, f)
 
     print('test completed in: {:2.0f}m{:2.0f}s test loss_1: {:4.4f} test loss_2: {:4.4f} test accu_1: {:.4f} test accu_2: {:.4f}'
