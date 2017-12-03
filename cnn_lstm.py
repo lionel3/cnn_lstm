@@ -149,19 +149,19 @@ def get_data(data_path):
     train_transforms = transforms.Compose([
         transforms.RandomCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
     val_transforms = transforms.Compose([
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
     test_transforms = transforms.Compose([
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
@@ -429,13 +429,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    model_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
+    model_name = "cv_10_10_cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
         sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train1_" + str(
         save_train_1) + "_train2_" + str(save_train_2) + "_val1_" + str(save_val_1) +"_val2_" + str(save_val_2)+ ".pth"
 
     torch.save(model, model_name)
 
-    record_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
+    record_name = "cv_10_10_cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
         sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train1_" + str(
         save_train_1) + "_train2_" + str(save_train_2) + "_val1_" + str(save_val_1) +"_val2_" + str(save_val_2) + ".pkl"
     with open(record_name, 'wb') as f:
@@ -444,7 +444,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
 
 def main():
-    train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
+    train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('cv_10_10_train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
 
 
