@@ -24,6 +24,7 @@ parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, d
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
 parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam, default 1')
+parser.add_argument('-m', '--multi', default=1, type=int, help='0 for single opt, 1 for multi opt, default 1')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
 parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
 
@@ -34,6 +35,7 @@ sequence_length = args.seq
 train_batch_size = args.train
 val_batch_size = args.val
 optimizer_choice = args.opt
+multi_optim = args.multi
 epochs = args.epo
 workers = args.work
 
@@ -228,11 +230,27 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     model = DataParallel(model)
     criterion = nn.CrossEntropyLoss(size_average=False)
 
-    if optimizer_choice == 0:
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-        exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-    elif optimizer_choice == 1:
-        optimizer = optim.Adam(model.parameters())
+    if multi_optim == 0:
+        if optimizer_choice == 0:
+            optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        elif optimizer_choice == 1:
+            optimizer = optim.Adam(model.parameters())
+    elif multi_optim == 1:
+        if optimizer_choice == 0:
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
+                {'params': model.module.fc.parameters(), 'lr': 1e-3},
+            ], lr=1e-4, momentum=0.9)
+
+            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        elif optimizer_choice == 1:
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
+                {'params': model.module.fc.parameters(), 'lr': 1e-3},
+            ], lr=1e-4)
 
     best_model_wts = model.state_dict()
     best_val_accuracy = 0.0
@@ -340,7 +358,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
     model_name = "lstm_epoch_" + str(epochs) + "_length_" + str(
-        sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
+        sequence_length) + "_opt_" + str(optimizer_choice) + "_mulopt_" + str(multi_optim) + "_batch_" + str(train_batch_size) + "_train_" + str(
         save_train) + "_val_" + str(save_val) + ".pth"
 
     torch.save(model, model_name)
@@ -349,7 +367,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
     record_name = "lstm_epoch_" + str(epochs) + "_length_" + str(
-        sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train_" + str(
+        sequence_length) + "_opt_" + str(optimizer_choice) + "_mulopt_" + str(multi_optim) + "_batch_" + str(train_batch_size) + "_train_" + str(
         save_train) + "_val_" + str(save_val) + ".pkl"
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)

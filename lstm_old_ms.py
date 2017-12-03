@@ -27,6 +27,7 @@ parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for ad
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
 parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
 
+
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
 os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg

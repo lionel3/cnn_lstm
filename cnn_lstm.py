@@ -24,6 +24,7 @@ parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, d
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
 parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam, default 1')
+parser.add_argument('-m', '--multi', default=1, type=int, help='0 for single opt, 1 for multi opt, default 1')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
 parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
 
@@ -34,27 +35,25 @@ sequence_length = args.seq
 train_batch_size = args.train
 val_batch_size = args.val
 optimizer_choice = args.opt
+multi_optim = args.multi
 epochs = args.epo
+workers = args.work
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 
-print('num_gpu:', num_gpu)
-print('sequence length:', sequence_length)
-print('train batch size:', train_batch_size)
-print('valid batch size:', val_batch_size)
-print('optimizer choice:', optimizer_choice)
-print('num of epochs:', epochs)
-print('num of workers:', args.work)
-
-lstm_in_dim = 2048
-lstm_out_dim = 512
+print('number of gpu   : {:6d}'.format(num_gpu))
+print('sequence length : {:6d}'.format(sequence_length))
+print('train batch size: {:6d}'.format(train_batch_size))
+print('valid batch size: {:6d}'.format(val_batch_size))
+print('optimizer choice: {:6d}'.format(optimizer_choice))
+print('num of epochs   : {:6d}'.format(epochs))
+print('num of workers  : {:6d}'.format(workers))
 
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
-
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -80,9 +79,9 @@ class CholecDataset(Dataset):
         return len(self.file_paths)
 
 
-class resnet_lstm(torch.nn.Module):
+class multi_lstm(torch.nn.Module):
     def __init__(self):
-        super(resnet_lstm, self).__init__()
+        super(multi_lstm, self).__init__()
         resnet = models.resnet50(pretrained=True)
         self.share = torch.nn.Sequential()
         self.share.add_module("conv1", resnet.conv1)
@@ -94,20 +93,22 @@ class resnet_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(lstm_in_dim, lstm_out_dim, batch_first=True)
-        self.fc = nn.Linear(lstm_out_dim, 7)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.fc = nn.Linear(512, 7)
         self.fc2 = nn.Linear(2048, 7)
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
+        init.xavier_uniform(self.fc.weight)
+        init.xavier_uniform(self.fc2.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         z = self.fc2(x)
-        x = x.view(-1, sequence_length, lstm_in_dim)
+        x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
-        y = y.contiguous().view(-1, lstm_out_dim)
+        y = y.contiguous().view(-1, 512)
         y = self.fc(y)
         return z, y
 
@@ -218,7 +219,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         batch_size=train_batch_size,
         sampler=train_idx,
         # shuffle=True,
-        num_workers=args.work,
+        num_workers=workers,
         pin_memory=False
     )
     val_loader = DataLoader(
@@ -226,10 +227,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         batch_size=val_batch_size,
         sampler=val_idx,
         # shuffle=True,
-        num_workers=args.work,
+        num_workers=workers,
         pin_memory=False
     )
-    model = resnet_lstm()
+    model = multi_lstm()
     if use_gpu:
         model = model.cuda()
 
@@ -238,11 +239,27 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     criterion_2 = nn.CrossEntropyLoss(size_average=False)
     sig_f = nn.Sigmoid()
 
-    if optimizer_choice == 0:
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-        exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-    elif optimizer_choice == 1:
-        optimizer = optim.Adam(model.parameters())
+    if multi_optim == 0:
+        if optimizer_choice == 0:
+            optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        elif optimizer_choice == 1:
+            optimizer = optim.Adam(model.parameters())
+    elif multi_optim == 1:
+        if optimizer_choice == 0:
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
+                {'params': model.module.fc.parameters(), 'lr': 1e-3},
+            ], lr=1e-4, momentum=0.9)
+
+            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        elif optimizer_choice == 1:
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
+                {'params': model.module.fc.parameters(), 'lr': 1e-3},
+            ], lr=1e-4)
 
     best_model_wts = model.state_dict()
     best_val_accuracy_1 = 0.0
@@ -429,14 +446,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    model_name = "cv_10_10_cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
-        sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train1_" + str(
+    model_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
+        sequence_length) + "_opt_" + str(optimizer_choice) + "_mulopt_" + str(multi_optim) + "_batch_" + str(train_batch_size) + "_train1_" + str(
         save_train_1) + "_train2_" + str(save_train_2) + "_val1_" + str(save_val_1) +"_val2_" + str(save_val_2)+ ".pth"
 
     torch.save(model, model_name)
 
-    record_name = "cv_10_10_cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
-        sequence_length) + "_opt_" + str(optimizer_choice) + "_batch_" + str(train_batch_size) + "_train1_" + str(
+    record_name = "cnn_lstm_epoch_" + str(epochs) + "_length_" + str(
+        sequence_length) + "_opt_" + str(optimizer_choice) + "_mulopt_" + str(multi_optim) + "_batch_" + str(train_batch_size) + "_train1_" + str(
         save_train_1) + "_train2_" + str(save_train_2) + "_val1_" + str(save_val_1) +"_val2_" + str(save_val_2) + ".pkl"
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
@@ -444,7 +461,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
 
 def main():
-    train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('cv_10_10_train_val_test_paths_labels.pkl')
+    train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
 
 
