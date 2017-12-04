@@ -367,7 +367,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     model.load_state_dict(best_model_wts)
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
-    model_name = "lstm" \
+    model_name = "lstm_ave" \
                  + "_epoch_" + str(epochs)\
                  + "_length_" + str(sequence_length) \
                  + "_opt_" + str(optimizer_choice) \
@@ -384,7 +384,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
 
-    record_name = "lstm"\
+    record_name = "lstm_ave"\
                   + "_epoch_" + str(epochs)\
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \

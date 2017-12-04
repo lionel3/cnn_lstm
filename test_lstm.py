@@ -40,7 +40,7 @@ use_gpu = torch.cuda.is_available()
 
 print('number of gpu   : {:6d}'.format(num_gpu))
 print('sequence length : {:6d}'.format(sequence_length))
-print('test batch size: {:6d}'.format(test_batch_size))
+print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
 
 def pil_loader(path):
@@ -162,14 +162,6 @@ def get_data(data_path):
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
-    print(np.max(train_labels))
-    print(np.max(val_labels))
-    print(np.max(test_labels))
-
-    # print(test_labels[0].shape)
-    # print(val_labels[0].shape)
-    # print(test_labels[0].shape)
-
     train_transforms = transforms.Compose([
         transforms.RandomCrop(224),
         transforms.ToTensor(),
@@ -192,10 +184,6 @@ def get_data(data_path):
     val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
-    for i in range(len(train_num_each)):
-        print(train_num_each[i])
-    for i in range(len(test_num_each)):
-        print(test_num_each[i])
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
 
