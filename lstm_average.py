@@ -4,19 +4,18 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 import torch.nn.init as init
-import torch.nn.functional as F
-import numpy as np
 import torchvision
 from torchvision import datasets, models, transforms, utils
 from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets import ImageFolder
-import time
 from torch.nn import DataParallel
 import os
+from PIL import Image
 import time
 import pickle
+import numpy as np
 import argparse
-from PIL import Image
+from torchvision.transforms import Lambda
 
 parser = argparse.ArgumentParser(description='lstm Training')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
@@ -175,8 +174,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    # num_train_we_use = 8000
-    # num_val_we_use = 800
+    # num_train_we_use = 800
+    # num_val_we_use = 80
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
@@ -271,7 +270,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_dataset,
             batch_size=train_batch_size,
             sampler=train_idx,
-            # shuffle=True,
             num_workers=args.work,
             pin_memory=False
         )
@@ -291,8 +289,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
             optimizer.zero_grad()
             outputs = model.forward(inputs)
-            outputs = outputs[sequence_length - 1::sequence_length]
+            outputs = outputs.view(-1, sequence_length, 7)
+            outputs = torch.mean(outputs, 1)
             _, preds = torch.max(outputs.data, 1)
+
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -318,20 +318,23 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
 
             outputs = model.forward(inputs)
-            outputs = outputs[sequence_length - 1::sequence_length]
+            outputs = outputs.view(-1, sequence_length, 7)
+            outputs = torch.mean(outputs, 1)
 
             _, preds = torch.max(outputs.data, 1)
-
             loss = criterion(outputs, labels)
             val_loss += loss.data[0]
             val_corrects += torch.sum(preds == labels.data)
         val_elapsed_time = time.time() - val_start_time
         val_accuracy = val_corrects / num_val_we_use
         val_average_loss = val_loss / num_val_we_use
-
-        print('epoch: {:4d} train completed in: {:2.0f}m{:2.0f}s  train loss: {:4.4f} train accu: {:.4f}'
-              ' valid completed in: {:2.0f}m{:2.0f}s '
-              'valid loss: {:4.4f} valid accu: {:.4f}'
+        print('epoch: {:4d}'
+              ' train in: {:2.0f}m{:2.0f}s'
+              ' train loss: {:4.4f}'
+              ' train accu: {:.4f}'
+              ' valid in: {:2.0f}m{:2.0f}s'
+              ' valid loss: {:4.4f}'
+              ' valid accu: {:.4f}'
               .format(epoch,
                       train_elapsed_time // 60,
                       train_elapsed_time % 60,
@@ -360,6 +363,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         all_val_accuracy.append(val_accuracy)
 
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
+
     model.load_state_dict(best_model_wts)
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
@@ -393,7 +397,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
     print()
-
 
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
