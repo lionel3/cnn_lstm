@@ -26,7 +26,9 @@ parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, 
 parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam, default 1')
 parser.add_argument('-m', '--multi', default=1, type=int, help='0 for single opt, 1 for multi opt, default 1')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
-parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
+parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
+parser.add_argument('-f', '--flip', default=0, type=int, help='0 for not flip, 1 for flip, default 0')
+parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
@@ -38,6 +40,8 @@ optimizer_choice = args.opt
 multi_optim = args.multi
 epochs = args.epo
 workers = args.work
+crop_type = args.crop
+use_flip = args.flip
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
@@ -50,6 +54,8 @@ print('optimizer choice: {:6d}'.format(optimizer_choice))
 print('multiple optim  : {:6d}'.format(multi_optim))
 print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
+print('test crop type  : {:6d}'.format(crop_type))
+print('whether to flip : {:6d}'.format(use_flip))
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -147,26 +153,51 @@ def get_data(data_path):
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
-    train_transforms = transforms.Compose([
-        transforms.RandomCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
+    if use_flip == 0:
+        train_transforms = transforms.Compose([
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif use_gpu == 1:
+        train_transforms = transforms.Compose([
+            transforms.RandomCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
 
-    val_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
-
-    test_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
+    if crop_type == 0:
+        test_transforms = transforms.Compose([
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif crop_type == 1:
+        test_transforms = transforms.Compose([
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif crop_type == 5:
+        test_transforms = transforms.Compose([
+            transforms.FiveCrop(224),
+            Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            Lambda(
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
+        ])
+    elif crop_type == 10:
+        test_transforms = transforms.Compose([
+            transforms.TenCrop(224),
+            Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            Lambda(
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
+        ])
 
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
-    val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
+    val_dataset = CholecDataset(val_paths, val_labels, test_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
@@ -358,8 +389,26 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels_1 = Variable(labels_1)
                 labels_2 = Variable(labels_2)
 
-            outputs_1, outputs_2 = model.forward(inputs)
+            if crop_type == 0 or crop_type == 1:
+                outputs_1, outputs_2 = model.forward(inputs)
+            elif crop_type == 5:
+                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+                inputs = inputs.view(-1, 3, 224, 224)
+                outputs_1, outputs_2 = model.forward(inputs)
+                outputs_1 = outputs_1.view(5, -1, 7)
+                outputs_1 = torch.mean(outputs_1, 0)
+                outputs_2 = outputs_2.view(5, -1, 7)
+                outputs_2 = torch.mean(outputs_2, 0)
+            elif crop_type == 10:
+                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+                inputs = inputs.view(-1, 3, 224, 224)
+                outputs_1, outputs_2 = model.forward(inputs)
+                outputs_1 = outputs_1.view(10, -1, 7)
+                outputs_1 = torch.mean(outputs_1, 0)
+                outputs_2 = outputs_2.view(10, -1, 7)
+                outputs_2 = torch.mean(outputs_2, 0)
 
+            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
             _, preds_2 = torch.max(outputs_2.data, 1)
 
             sig_out = outputs_1.data.cpu()
@@ -455,7 +504,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_val_loss_1)
     all_info.append(all_val_loss_2)
 
-    # model.load_state_dict(best_model_wts)
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
     save_val_1 = int("{:4.0f}".format(best_val_accuracy_1 * 10000))
@@ -467,6 +515,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                  + "_length_" + str(sequence_length) \
                  + "_opt_" + str(optimizer_choice) \
                  + "_mulopt_" + str(multi_optim) \
+                 + "_flip_" + str(use_flip) \
+                 + "_crop_" + str(crop_type) \
                  + "_batch_" + str(train_batch_size) \
                  + "_train1_" + str(save_train_1) \
                  + "_train2_" + str(save_train_2) \
@@ -481,6 +531,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
                   + "_mulopt_" + str(multi_optim) \
+                  + "_flip_" + str(use_flip) \
+                  + "_crop_" + str(crop_type) \
                   + "_batch_" + str(train_batch_size) \
                   + "_train1_" + str(save_train_1) \
                   + "_train2_" + str(save_train_2) \

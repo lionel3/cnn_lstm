@@ -311,6 +311,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_start_time = time.time()
         for data in train_loader:
             inputs, labels_1, labels_2 = data
+            labels_2 = labels_2[(sequence_length - 1)::sequence_length]
             if use_gpu:
                 inputs = Variable(inputs.cuda())
                 labels = Variable(labels_2.cuda())
@@ -319,6 +320,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels = Variable(labels_2)
             optimizer.zero_grad()
             outputs = model.forward(inputs)
+            outputs = outputs[(sequence_length - 1)::sequence_length]
             _, preds = torch.max(outputs.data, 1)
 
             loss = criterion(outputs, labels)
@@ -327,8 +329,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_loss += loss.data[0]
             train_corrects += torch.sum(preds == labels.data)
         train_elapsed_time = time.time() - train_start_time
-        train_accuracy = train_corrects / num_train_all
-        train_average_loss = train_loss / num_train_all
+        train_accuracy = train_corrects / num_train_we_use
+        train_average_loss = train_loss / num_train_we_use
 
         # begin eval
         model.eval()
@@ -407,7 +409,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
-    model_name = "lstm" \
+    model_name = "lstm_last" \
                  + "_epoch_" + str(epochs)\
                  + "_length_" + str(sequence_length) \
                  + "_opt_" + str(optimizer_choice) \
@@ -426,7 +428,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
 
-    record_name = "lstm"\
+    record_name = "lstm_last"\
                   + "_epoch_" + str(epochs)\
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \

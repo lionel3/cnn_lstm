@@ -299,8 +299,8 @@ def test_model(test_dataset, test_num_each):
     print('type of all_preds:', type(all_preds))
     print('leng of all preds:', len(all_preds))
 
-    with open(pred_name, 'wb') as f:
-        pickle.dump(all_preds, f)
+    # with open(pred_name, 'wb') as f:
+    #     pickle.dump(all_preds, f)
     print('test elapsed: {:2.0f}m{:2.0f}s'
           ' test loss: {:4.4f}'
           ' test accu: {:.4f}'
@@ -311,7 +311,7 @@ def test_model(test_dataset, test_num_each):
 print()
 
 def main():
-    _, _, _, _, test_dataset, test_num_each = get_data('train_val_test_paths_labels.pkl')
+    _, _, test_dataset, test_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
 
     test_model(test_dataset, test_num_each)
 

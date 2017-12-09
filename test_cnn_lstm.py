@@ -45,6 +45,8 @@ print('number of gpu   : {:6d}'.format(num_gpu))
 print('sequence length : {:6d}'.format(sequence_length))
 print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
+print('test crop type  : {:6d}'.format(crop_type))
+
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -172,21 +174,37 @@ def get_data(data_path):
         transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
-    val_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
-
-
-    test_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
+    if crop_type == 0:
+        test_transforms = transforms.Compose([
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif crop_type == 1:
+        test_transforms = transforms.Compose([
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif crop_type == 5:
+        test_transforms = transforms.Compose([
+            transforms.FiveCrop(224),
+            Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            Lambda(
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
+        ])
+    elif crop_type == 10:
+        test_transforms = transforms.Compose([
+            transforms.TenCrop(224),
+            Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            Lambda(
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
+        ])
 
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
-    val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
+    val_dataset = CholecDataset(val_paths, val_labels, test_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
@@ -225,6 +243,7 @@ def test_model(test_dataset, test_num_each):
         pin_memory=False
     )
     model = multi_lstm()
+    model = DataParallel(model)
     model.load_state_dict(torch.load(model_name))
     model = model.module
     model = DataParallel(model)
@@ -262,7 +281,24 @@ def test_model(test_dataset, test_num_each):
             labels_1 = Variable(labels_1, volatile=True)
             labels_2 = Variable(labels_2, volatile=True)
 
-        outputs_1, outputs_2 = model.forward(inputs)
+        if crop_type == 0 or crop_type == 1:
+            outputs_1, outputs_2 = model.forward(inputs)
+        elif crop_type == 5:
+            inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+            inputs = inputs.view(-1, 3, 224, 224)
+            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_1 = outputs_1.view(5, -1, 7)
+            outputs_1 = torch.mean(outputs_1, 0)
+            outputs_2 = outputs_2.view(5, -1, 7)
+            outputs_2 = torch.mean(outputs_2, 0)
+        elif crop_type == 10:
+            inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+            inputs = inputs.view(-1, 3, 224, 224)
+            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_1 = outputs_1.view(10, -1, 7)
+            outputs_1 = torch.mean(outputs_1, 0)
+            outputs_2 = outputs_2.view(10, -1, 7)
+            outputs_2 = torch.mean(outputs_2, 0)
 
         # outputs_1 = outputs_1[sequence_length-1::sequence_length]
         outputs_2 = outputs_2[sequence_length-1::sequence_length]
