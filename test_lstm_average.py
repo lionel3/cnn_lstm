@@ -16,6 +16,8 @@ import pickle
 import numpy as np
 import argparse
 from torchvision.transforms import Lambda
+import copy
+
 
 parser = argparse.ArgumentParser(description='lstm testing')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
@@ -31,6 +33,7 @@ sequence_length = args.seq
 test_batch_size = args.test
 workers = args.work
 model_name = args.name
+
 
 model_pure_name, _ = os.path.splitext(model_name)
 pred_name = model_pure_name + '_pred_lstm.pkl'
@@ -220,8 +223,10 @@ def test_model(test_dataset, test_num_each):
         num_workers=workers,
         pin_memory=False
     )
-    model = torch.load(model_name)
-
+    model = resnet_lstm()
+    model.load_state_dict(torch.load(model_name))
+    model = model.module
+    model = DataParallel(model)
     if use_gpu:
         model = model.cuda()
     # 应该可以直接多gpu计算

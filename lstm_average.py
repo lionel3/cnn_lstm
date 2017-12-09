@@ -16,6 +16,7 @@ import pickle
 import numpy as np
 import argparse
 from torchvision.transforms import Lambda
+import copy
 
 parser = argparse.ArgumentParser(description='lstm Training')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
@@ -248,7 +249,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.fc.parameters(), 'lr': 1e-3},
             ], lr=1e-4)
 
-    best_model_wts = model.state_dict()
+    best_model_wts = copy.deepcopy(model.state_dict())
+
     best_val_accuracy = 0.0
     correspond_train_acc = 0.0
 
@@ -351,11 +353,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
             correspond_train_acc = train_accuracy
-            best_model_wts = model.state_dict()
+            best_model_wts = copy.deepcopy(model.state_dict())
         if val_accuracy == best_val_accuracy:
             if train_accuracy > correspond_train_acc:
                 correspond_train_acc = train_accuracy
-                best_model_wts = model.state_dict()
+                best_model_wts = copy.deepcopy(model.state_dict())
 
         all_train_loss.append(train_average_loss)
         all_train_accuracy.append(train_accuracy)

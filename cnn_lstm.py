@@ -15,6 +15,7 @@ import time
 import pickle
 import numpy as np
 import argparse
+import copy
 from torchvision.transforms import Lambda
 
 parser = argparse.ArgumentParser(description='lstm Training')
@@ -258,7 +259,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.fc.parameters(), 'lr': 1e-3},
             ], lr=1e-4)
 
-    best_model_wts = model.state_dict()
+    best_model_wts = copy.deepcopy(model.state_dict())
     best_val_accuracy_1 = 0.0
     best_val_accuracy_2 = 0.0  # judge by accu2
     correspond_train_acc_1 = 0.0
@@ -420,22 +421,21 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             best_val_accuracy_1 = val_accuracy_1
             correspond_train_acc_1 = train_accuracy_1
             correspond_train_acc_2 = train_accuracy_2
-            best_model_wts = model.state_dict()
+            best_model_wts = copy.deepcopy(model.state_dict())
         elif val_accuracy_2 == best_val_accuracy_2 and val_accuracy_1 > 0.95:
             if val_accuracy_1 > best_val_accuracy_1:
                 correspond_train_acc_1 = train_accuracy_1
                 correspond_train_acc_2 = train_accuracy_2
-                best_model_wts = model.state_dict()
+                best_model_wts = copy.deepcopy(model.state_dict())
             elif val_accuracy_1 == best_val_accuracy_1:
                 if train_accuracy_2 > correspond_train_acc_2:
                     correspond_train_acc_2 = train_accuracy_2
                     correspond_train_acc_1 = train_accuracy_1
-                    best_model_wts = model.state_dict()
+                    best_model_wts = copy.deepcopy(model.state_dict())
                 elif train_accuracy_2 == correspond_train_acc_2:
                     if train_accuracy_1 > best_val_accuracy_1:
                         correspond_train_acc_1 = train_accuracy_1
-                        best_model_wts = model.state_dict()
-
+                        best_model_wts = copy.deepcopy(model.state_dict())
 
         all_train_loss_1.append(train_average_loss_1)
         all_train_loss_2.append(train_average_loss_2)
@@ -455,7 +455,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_val_loss_1)
     all_info.append(all_val_loss_2)
 
-    model.load_state_dict(best_model_wts)
+    # model.load_state_dict(best_model_wts)
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
     save_val_1 = int("{:4.0f}".format(best_val_accuracy_1 * 10000))
@@ -474,7 +474,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                  + "_val2_" + str(save_val_2)\
                  + ".pth"
 
-    torch.save(model, model_name)
+    torch.save(best_model_wts, model_name)
 
     record_name = "cnn_lstm" \
                   + "_epoch_" + str(epochs) \

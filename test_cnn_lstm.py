@@ -23,6 +23,7 @@ parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, d
 parser.add_argument('-t', '--test', default=800, type=int, help='test batch size, default 800')
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
 parser.add_argument('-n', '--name', type=str, help='name of model')
+parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
@@ -31,6 +32,7 @@ sequence_length = args.seq
 test_batch_size = args.test
 model_name = args.name
 workers = args.work
+crop_type = args.crop
 
 model_pure_name, _ = os.path.splitext(model_name)
 pred_1_name = model_pure_name + '_pred_1.pkl'
@@ -41,7 +43,7 @@ use_gpu = torch.cuda.is_available()
 
 print('number of gpu   : {:6d}'.format(num_gpu))
 print('sequence length : {:6d}'.format(sequence_length))
-print('test batch size: {:6d}'.format(test_batch_size))
+print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
 
 def pil_loader(path):
@@ -222,8 +224,10 @@ def test_model(test_dataset, test_num_each):
         num_workers=1,
         pin_memory=False
     )
-    model = torch.load(model_name)
-
+    model = multi_lstm()
+    model.load_state_dict(torch.load(model_name))
+    model = model.module
+    model = DataParallel(model)
 
     if use_gpu:
         model = model.cuda()

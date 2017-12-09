@@ -23,6 +23,7 @@ parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, d
 parser.add_argument('-t', '--test', default=800, type=int, help='test batch size, default 800')
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
 parser.add_argument('-n', '--name', type=str, help='name of model')
+parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
@@ -31,9 +32,10 @@ sequence_length = args.seq
 test_batch_size = args.test
 workers = args.work
 model_name = args.name
+crop_type = args.crop
 
 model_pure_name, _ = os.path.splitext(model_name)
-pred_name = model_pure_name + '_pred_lstm.pkl'
+pred_name = model_pure_name + '_pred_' + str(crop_type) + '.pkl'
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
@@ -42,6 +44,8 @@ print('number of gpu   : {:6d}'.format(num_gpu))
 print('sequence length : {:6d}'.format(sequence_length))
 print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
+print('test crop type  : {:6d}'.format(crop_type))
+print('name of this model: {:s}'.format(model_name))    # so we can store all result in the same file
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -168,20 +172,37 @@ def get_data(data_path):
         transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
     ])
 
-    val_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
-
-    test_transforms = transforms.Compose([
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
-    ])
+    if crop_type == 0:
+        test_transforms = transforms.Compose([
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif crop_type == 1:
+        test_transforms = transforms.Compose([
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
+        ])
+    elif crop_type == 5:
+        test_transforms = transforms.Compose([
+            transforms.FiveCrop(224),
+            Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            Lambda(
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
+        ])
+    elif crop_type == 10:
+        test_transforms = transforms.Compose([
+            transforms.TenCrop(224),
+            Lambda(lambda crops: torch.stack([transforms.ToTensor()(crop) for crop in crops])),
+            Lambda(
+                lambda crops: torch.stack(
+                    [transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])(crop) for crop in crops]))
+        ])
 
     train_dataset = CholecDataset(train_paths, train_labels, train_transforms)
-    val_dataset = CholecDataset(val_paths, val_labels, val_transforms)
+    val_dataset = CholecDataset(val_paths, val_labels, test_transforms)
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
@@ -196,7 +217,6 @@ def test_model(test_dataset, test_num_each):
     # num_test_we_use = 804
     # num_test_we_use = len(test_useful_start_idx) // (test_batch_size // sequence_length) * (
     #     test_batch_size // sequence_length)
-
 
     test_we_use_start_idx = test_useful_start_idx[0:num_test_we_use]
 
@@ -220,7 +240,8 @@ def test_model(test_dataset, test_num_each):
         num_workers=workers,
         pin_memory=False
     )
-    model = torch.load(model_name)
+    model = resnet_lstm()
+    model.load_state_dict(torch.load(model_name))
 
     if use_gpu:
         model = model.cuda()
@@ -238,6 +259,7 @@ def test_model(test_dataset, test_num_each):
     for data in test_loader:
         inputs, labels_1, labels_2 = data
         labels_2 = labels_2[(sequence_length-1)::sequence_length]
+
         if use_gpu:
             inputs = Variable(inputs.cuda(), volatile=True)
             labels = Variable(labels_2.cuda(), volatile=True)
@@ -245,9 +267,22 @@ def test_model(test_dataset, test_num_each):
             inputs = Variable(inputs, volatile=True)
             labels = Variable(labels_2, volatile=True)
 
-        outputs = model.forward(inputs)
-        outputs = outputs[sequence_length - 1::sequence_length]
+        if crop_type == 0 or crop_type == 1:
+            outputs = model.forward(inputs)
+        elif crop_type == 5:
+            inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+            inputs = inputs.view(-1, 3, 224, 224)
+            outputs = model.forward(inputs)
+            outputs = outputs.view(5, -1, 7)
+            outputs = torch.mean(outputs, 0)
+        elif crop_type == 10:
+            inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+            inputs = inputs.view(-1, 3, 224, 224)
+            outputs = model.forward(inputs)
+            outputs = outputs.view(10, -1, 7)
+            outputs = torch.mean(outputs, 0)
 
+        outputs = outputs[sequence_length - 1::sequence_length]
         _, preds = torch.max(outputs.data, 1)
         for i in range(len(preds)):
             all_preds.append(preds[i])

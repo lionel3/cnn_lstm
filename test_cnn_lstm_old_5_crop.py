@@ -269,21 +269,13 @@ def test_model(test_dataset, test_num_each):
             else:
                 inputs = Variable(inputs, volatile=True)
 
-            # print(inputs.size())
             inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-            # print(inputs.size())
             inputs = inputs.view(-1, 3, 224, 224)
-            # print(inputs.size())
             outputs_1, outputs_2 = model.forward(inputs)
-            # print(outputs_1.size())
-            # print(outputs_2.size())
             outputs_1 = outputs_1.view(5, -1, 7)
             outputs_2 = outputs_2.view(5, -1, 7)
-            # print(outputs_1.size())
             outputs_1 = torch.mean(outputs_1, 0)
             outputs_2 = torch.mean(outputs_2, 0)
-            # print(outputs_1.size())
-            # print(outputs_2.size())
 
             labels_2 = labels_2[(sequence_length - 1)::sequence_length]
             if use_gpu:
