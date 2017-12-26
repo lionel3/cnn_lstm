@@ -4,19 +4,19 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 import torch.nn.init as init
-import torchvision
-from torchvision import datasets, models, transforms, utils
+from torchvision import models, transforms
 from torch.utils.data import Dataset, DataLoader
-from torchvision.datasets import ImageFolder
 from torch.nn import DataParallel
 import os
 from PIL import Image
+
 import time
 import pickle
 import numpy as np
 import argparse
 from torchvision.transforms import Lambda
 import copy
+
 parser = argparse.ArgumentParser(description='lstm Training')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
@@ -25,14 +25,13 @@ parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, 
 parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam, default 1')
 parser.add_argument('-m', '--multi', default=1, type=int, help='0 for single opt, 1 for multi opt, default 1')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
-parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
+parser.add_argument('-w', '--work', default=1, type=int, help='num of workers to use, default 1')
 parser.add_argument('-f', '--flip', default=0, type=int, help='0 for not flip, 1 for flip, default 0')
 parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
 
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
 os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
-sequence_length = args.seq
 train_batch_size = args.train
 val_batch_size = args.val
 optimizer_choice = args.opt
@@ -45,7 +44,6 @@ use_flip = args.flip
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 print('number of gpu   : {:6d}'.format(num_gpu))
-print('sequence length : {:6d}'.format(sequence_length))
 print('train batch size: {:6d}'.format(train_batch_size))
 print('valid batch size: {:6d}'.format(val_batch_size))
 print('optimizer choice: {:6d}'.format(optimizer_choice))
@@ -60,6 +58,7 @@ def pil_loader(path):
         with Image.open(f) as img:
             return img.convert('RGB')
 
+
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
                  loader=pil_loader):
@@ -67,6 +66,7 @@ class CholecDataset(Dataset):
         self.file_labels_1 = file_labels[:, range(7)]
         self.file_labels_2 = file_labels[:, -1]
         self.transform = transform
+        # self.target_transform=target_transform
         self.loader = loader
 
     def __getitem__(self, index):
@@ -82,9 +82,10 @@ class CholecDataset(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
-class resnet_lstm(torch.nn.Module):
+
+class multi_resnet(torch.nn.Module):
     def __init__(self):
-        super(resnet_lstm, self).__init__()
+        super(multi_resnet, self).__init__()
         resnet = models.resnet50(pretrained=True)
         self.share = torch.nn.Sequential()
         self.share.add_module("conv1", resnet.conv1)
@@ -96,22 +97,15 @@ class resnet_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
-        self.fc = nn.Linear(512, 7)
-
-        init.xavier_normal(self.lstm.all_weights[0][0])
-        init.xavier_normal(self.lstm.all_weights[0][1])
-        init.xavier_uniform(self.fc.weight)
+        self.fc1 = nn.Linear(2048, 7)
+        init.xavier_uniform(self.fc1.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        x = x.view(-1, sequence_length, 2048)
-        self.lstm.flatten_parameters()
-        y, _ = self.lstm(x)
-        y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
-        return y
+        x = self.fc1(x)
+        return x
+
 
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
@@ -152,7 +146,7 @@ def get_data(data_path):
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
-    elif use_gpu == 1:
+    elif use_flip == 1:
         train_transforms = transforms.Compose([
             transforms.RandomCrop(224),
             transforms.RandomHorizontalFlip(),
@@ -200,41 +194,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train = len(train_dataset)
     num_val = len(val_dataset)
 
-    train_useful_start_idx = get_useful_start_idx(sequence_length, train_num_each)
-    val_useful_start_idx = get_useful_start_idx(sequence_length, val_num_each)
+    train_idx = [i for i in range(num_train)]
+    np.random.seed(0)
+    np.random.shuffle(train_idx)
+    val_idx = [i for i in range(num_val)]
 
-    num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
-    num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    # num_train_we_use = 8000
-    # num_val_we_use = 800
-
-    train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
-    val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
-
-    #    np.random.seed(0)
-    # np.random.shuffle(train_we_use_start_idx)
-    train_idx = []
-    for i in range(num_train_we_use):
-        for j in range(sequence_length):
-            train_idx.append(train_we_use_start_idx[i] + j)
-
-    val_idx = []
-    for i in range(num_val_we_use):
-        for j in range(sequence_length):
-            val_idx.append(val_we_use_start_idx[i] + j)
-
-    num_train_all = len(train_idx)
-    num_val_all = len(val_idx)
     print('num of train dataset: {:6d}'.format(num_train))
-    print('num train start idx : {:6d}'.format(len(train_useful_start_idx)))
-    print('last idx train start: {:6d}'.format(train_useful_start_idx[-1]))
-    print('num of train we use : {:6d}'.format(num_train_we_use))
-    print('num of all train use: {:6d}'.format(num_train_all))
     print('num of valid dataset: {:6d}'.format(num_val))
-    print('num valid start idx : {:6d}'.format(len(val_useful_start_idx)))
-    print('last idx valid start: {:6d}'.format(val_useful_start_idx[-1]))
-    print('num of valid we use : {:6d}'.format(num_val_we_use))
-    print('num of all valid use: {:6d}'.format(num_val_all))
 
     train_loader = DataLoader(
         train_dataset,
@@ -250,13 +216,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         num_workers=workers,
         pin_memory=False
     )
-    model = resnet_lstm()
+    # model = models.resnet50(pretrained=True)
+    # num_ftrs = model.fc.in_features
+    # model.fc = nn.Linear(num_ftrs, 7)
+    model = multi_resnet()
     if use_gpu:
         model = model.cuda()
-
     model = DataParallel(model)
-    criterion = nn.CrossEntropyLoss(size_average=False)
-
+    criterion = nn.BCEWithLogitsLoss(size_average=False)
     if multi_optim == 0:
         if optimizer_choice == 0:
             optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
@@ -267,16 +234,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         if optimizer_choice == 0:
             optimizer = optim.SGD([
                 {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
-                {'params': model.module.fc.parameters(), 'lr': 1e-3},
+                {'params': model.module.fc1.parameters(), 'lr': 1e-3},
             ], lr=1e-4, momentum=0.9)
 
             exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
             optimizer = optim.SGD([
                 {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
-                {'params': model.module.fc.parameters(), 'lr': 1e-3},
+                {'params': model.module.fc1.parameters(), 'lr': 1e-3},
             ], lr=1e-4)
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -289,22 +254,19 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_val_accuracy = []
     all_val_loss = []
 
+    sig_f = nn.Sigmoid()
     for epoch in range(epochs):
-        # np.random.seed(epoch)
-        np.random.shuffle(train_we_use_start_idx)
-        train_idx = []
-        for i in range(num_train_we_use):
-            for j in range(sequence_length):
-                train_idx.append(train_we_use_start_idx[i] + j)
+        train_idx = [i for i in range(num_train)]
+        np.random.seed(0)
+        np.random.shuffle(train_idx)
 
         train_loader = DataLoader(
             train_dataset,
             batch_size=train_batch_size,
             sampler=train_idx,
-            num_workers=args.work,
+            num_workers=workers,
             pin_memory=False
         )
-
         model.train()
         train_loss = 0.0
         train_corrects = 0
@@ -313,63 +275,60 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             inputs, labels_1, labels_2 = data
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels = Variable(labels_2.cuda())
+                labels = Variable(labels_1.cuda())
             else:
                 inputs = Variable(inputs)
-                labels = Variable(labels_2)
-            optimizer.zero_grad()
-            outputs = model.forward(inputs)
-            _, preds = torch.max(outputs.data, 1)
+                labels = Variable(labels_1)
+            optimizer.zero_grad()  # 如果optimizer(net.parameters()), 那么效果和net.zero_grad()一样
 
+            outputs = model.forward(inputs)
+
+            sig_out = outputs.data.cpu()
+            sig_out = sig_f(sig_out)
+
+            predict = torch.ByteTensor(sig_out > 0.5)
+            predict = predict.long()
+            train_corrects += torch.sum(predict == labels.data.cpu())
+            # print(train_corrects)
+            labels = Variable(labels.data.float())
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             train_loss += loss.data[0]
-            train_corrects += torch.sum(preds == labels.data)
+            # print(train_corrects)
         train_elapsed_time = time.time() - train_start_time
-        train_accuracy = train_corrects / num_train_all
-        train_average_loss = train_loss / num_train_all
+        train_accuracy = train_corrects / num_train / 7
+        train_average_loss = train_loss / num_train / 7
 
-        # begin eval
+
         model.eval()
         val_loss = 0.0
         val_corrects = 0
         val_start_time = time.time()
         for data in val_loader:
             inputs, labels_1, labels_2 = data
-            labels_2 = labels_2[(sequence_length - 1)::sequence_length]
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels = Variable(labels_2.cuda())
+                labels = Variable(labels_1.cuda())
             else:
                 inputs = Variable(inputs)
-                labels = Variable(labels_2)
+                labels = Variable(labels_1)
 
-            if crop_type == 0 or crop_type == 1:
-                outputs = model.forward(inputs)
-            elif crop_type == 5:
-                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-                inputs = inputs.view(-1, 3, 224, 224)
-                outputs = model.forward(inputs)
-                outputs = outputs.view(5, -1, 7)
-                outputs = torch.mean(outputs, 0)
-            elif crop_type == 10:
-                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-                inputs = inputs.view(-1, 3, 224, 224)
-                outputs = model.forward(inputs)
-                outputs = outputs.view(10, -1, 7)
-                outputs = torch.mean(outputs, 0)
+            outputs = model.forward(inputs)
 
-            outputs = outputs[sequence_length - 1::sequence_length]
+            sig_out = outputs.data.cpu()
+            sig_out = sig_f(sig_out)
 
-            _, preds = torch.max(outputs.data, 1)
-
+            predict = torch.ByteTensor(sig_out > 0.5)
+            predict = predict.long()
+            val_corrects += torch.sum(predict == labels.data.cpu())
+            labels = Variable(labels.data.float())
             loss = criterion(outputs, labels)
             val_loss += loss.data[0]
-            val_corrects += torch.sum(preds == labels.data)
+            # print(val_corrects)
         val_elapsed_time = time.time() - val_start_time
-        val_accuracy = val_corrects / num_val_we_use
-        val_average_loss = val_loss / num_val_we_use
+        val_accuracy = val_corrects / num_val / 7
+        val_average_loss = val_loss / num_val / 7
         print('epoch: {:4d}'
               ' train in: {:2.0f}m{:2.0f}s'
               ' train loss: {:4.4f}'
@@ -387,6 +346,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       val_average_loss,
                       val_accuracy))
 
+        all_train_loss.append(train_average_loss)
+        all_train_accuracy.append(train_accuracy)
+        all_val_loss.append(val_average_loss)
+        all_val_accuracy.append(val_accuracy)
+
         if optimizer_choice == 0:
             exp_lr_scheduler.step(val_average_loss)
 
@@ -394,22 +358,17 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             best_val_accuracy = val_accuracy
             correspond_train_acc = train_accuracy
             best_model_wts = copy.deepcopy(model.state_dict())
-        if val_accuracy == best_val_accuracy:
+        elif val_accuracy == best_val_accuracy:
             if train_accuracy > correspond_train_acc:
                 correspond_train_acc = train_accuracy
-                best_model_wts = copy.deepcopy(model.state_dict(()))
-        all_train_loss.append(train_average_loss)
-        all_train_accuracy.append(train_accuracy)
-        all_val_loss.append(val_average_loss)
-        all_val_accuracy.append(val_accuracy)
+                best_model_wts = copy.deepcopy(model.state_dict())
 
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
 
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
-    model_name = "lstm" \
-                 + "_epoch_" + str(epochs)\
-                 + "_length_" + str(sequence_length) \
+    model_name = "multi" \
+                 + "_epoch_" + str(epochs) \
                  + "_opt_" + str(optimizer_choice) \
                  + "_mulopt_" + str(multi_optim) \
                  + "_flip_" + str(use_flip) \
@@ -418,17 +377,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                  + "_train_" + str(save_train) \
                  + "_val_" + str(save_val) \
                  + ".pth"
-
     torch.save(best_model_wts, model_name)
-
     all_info.append(all_train_accuracy)
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-
-    record_name = "lstm"\
-                  + "_epoch_" + str(epochs)\
-                  + "_length_" + str(sequence_length) \
+    record_name = "multi" \
+                  + "_epoch_" + str(epochs) \
                   + "_opt_" + str(optimizer_choice) \
                   + "_mulopt_" + str(multi_optim) \
                   + "_flip_" + str(use_flip) \
@@ -437,7 +392,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_train_" + str(save_train) \
                   + "_val_" + str(save_val) \
                   + ".pkl"
-
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
     print()

@@ -36,6 +36,7 @@ crop_type = args.crop
 
 model_pure_name, _ = os.path.splitext(model_name)
 pred_name = model_pure_name + '_pred_' + str(crop_type) + '.pkl'
+print('name of this model: {:s}'.format(model_name))    # so we can store all result in the same file
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
@@ -45,7 +46,6 @@ print('sequence length : {:6d}'.format(sequence_length))
 print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
-print('name of this model: {:s}'.format(model_name))    # so we can store all result in the same file
 
 def pil_loader(path):
     with open(path, 'rb') as f:

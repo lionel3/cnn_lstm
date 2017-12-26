@@ -17,8 +17,9 @@ import numpy as np
 import argparse
 import copy
 from torchvision.transforms import Lambda
+import random
 
-parser = argparse.ArgumentParser(description='lstm Training')
+parser = argparse.ArgumentParser(description='cnn_lstm Training')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
@@ -57,10 +58,25 @@ print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
 print('whether to flip : {:6d}'.format(use_flip))
 
+
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
+
+class RandomHorizontalFlip(object):
+    def __init__(self):
+        self.count = 0
+
+    def __call__(self, img):
+        seed = self.count // sequence_length
+        self.count += 1
+        random.seed(seed)
+        if random.random() < 0.5:
+            return img.transpose(Image.FLIP_LEFT_RIGHT)
+        return img
+
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -84,7 +100,6 @@ class CholecDataset(Dataset):
 
     def __len__(self):
         return len(self.file_paths)
-
 
 class multi_lstm(torch.nn.Module):
     def __init__(self):
@@ -118,6 +133,7 @@ class multi_lstm(torch.nn.Module):
         y = y.contiguous().view(-1, 512)
         y = self.fc(y)
         return z, y
+
 
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
@@ -159,10 +175,10 @@ def get_data(data_path):
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
-    elif use_gpu == 1:
+    elif use_flip == 1:
         train_transforms = transforms.Compose([
             transforms.RandomCrop(224),
-            transforms.RandomHorizontalFlip(),
+            RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
@@ -213,14 +229,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    #num_train_we_use = 8000
-    #num_val_we_use = 800
+    # num_train_we_use = 4
+    # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
-    #    np.random.seed(0)
-    # np.random.shuffle(train_we_use_start_idx)
     train_idx = []
     for i in range(num_train_we_use):
         for j in range(sequence_length):
@@ -318,7 +332,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_dataset,
             batch_size=train_batch_size,
             sampler=train_idx,
-            num_workers=args.work,
+            num_workers=workers,
             pin_memory=False
         )
 
@@ -352,10 +366,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             preds_1 = preds_1.long()
             train_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())
             labels_1 = Variable(labels_1.data.float())
-
             loss_1 = criterion_1(outputs_1, labels_1)
-            loss_2 = criterion_2(outputs_2, labels_2)
 
+            loss_2 = criterion_2(outputs_2, labels_2)
             loss = loss_1 + loss_2
             loss.backward()
             optimizer.step()
@@ -363,6 +376,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_loss_1 += loss_1.data[0]
             train_loss_2 += loss_2.data[0]
             train_corrects_2 += torch.sum(preds_2 == labels_2.data)
+
         train_elapsed_time = time.time() - train_start_time
         train_accuracy_1 = train_corrects_1 / num_train_all / 7
         train_accuracy_2 = train_corrects_2 / num_train_all
@@ -377,9 +391,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_corrects_1 = 0
         val_corrects_2 = 0
 
+
         val_start_time = time.time()
         for data in val_loader:
             inputs, labels_1, labels_2 = data
+            labels_2 = labels_2[(sequence_length - 1):: sequence_length]
             if use_gpu:
                 inputs = Variable(inputs.cuda())
                 labels_1 = Variable(labels_1.cuda())
@@ -417,20 +433,69 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             preds_1 = preds_1.long()
             val_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())
             labels_1 = Variable(labels_1.data.float())
-
             loss_1 = criterion_1(outputs_1, labels_1)
-            loss_2 = criterion_2(outputs_2, labels_2)
-
             val_loss_1 += loss_1.data[0]
+
+            loss_2 = criterion_2(outputs_2, labels_2)
             val_loss_2 += loss_2.data[0]
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
+
+        # all_preds_1 = []
+        # all_labels_1 = []
+
+        # for i in range(len(outputs_1)):
+        #     val_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
+        #     val_labels_1.append(labels_1[i].data.cpu().numpy().tolist())
+
+        # 类似test方法统计，但是可能不整除gpu个数，放弃
+        # val_preds_1_cor = []
+        # val_labels_1_cor = []
+        # cor_count = 0
+        #
+        # print(num_val)
+        # print(num_val_we_use)
+        # print(len(val_preds_1))
+        # print(len(val_labels_1))
+        #
+        # for i in range(len(val_num_each)):
+        #     for j in range(cor_count, cor_count + val_num_each[i] - (sequence_length - 1)):
+        #         if j == cor_count:
+        #             for k in range(sequence_length - 1):
+        #                 val_preds_1_cor.append(val_preds_1[sequence_length * j + k])
+        #                 val_labels_1_cor.append(val_labels_1[sequence_length * j + k])
+        #         val_preds_1_cor.append(val_preds_1[sequence_length * j + sequence_length - 1])
+        #         val_labels_1_cor.append(val_labels_1[sequence_length * j + sequence_length - 1])
+        #     cor_count += val_num_each[i] + 1 - sequence_length
+        #
+        # print('val_preds_1 : {:6d}'.format(len(val_preds_1)))
+        # print('val_labels_1: {:6d}'.format(len(val_labels_1)))
+        # print('cor_labels_1: {:6d}'.format(len(val_preds_1_cor)))
+        # print('cor_labels_1: {:6d}'.format(len(val_labels_1_cor)))
+        #
+        # pt_preds_1 = torch.from_numpy(np.asarray(val_preds_1_cor, dtype=np.float32))
+        # pt_labels_1 = torch.from_numpy(np.asarray(val_labels_1_cor, dtype=np.float32))
+        # pt_labels_1 = Variable(pt_labels_1, requires_grad=False)
+        # pt_preds_1 = Variable(pt_preds_1, requires_grad=False)
+        # loss_1 = criterion_1(pt_preds_1, pt_labels_1)
+        # val_loss_1 += loss_1.data[0]
+        #
+        # pt_labels_1 = pt_labels_1.data
+        # pt_preds_1 = pt_preds_1.data
+        #
+        # sig_out = sig_f(pt_preds_1)
+        # preds_cor = torch.ByteTensor(sig_out > 0.5)
+        # preds_cor = preds_cor.long()
+        # pt_labels_1 = pt_labels_1.long()
+        # val_corrects_1 = torch.sum(preds_cor == pt_labels_1)
+
         val_elapsed_time = time.time() - val_start_time
-        val_accuracy_1 = val_corrects_1 / num_val_all / 7
-        val_accuracy_2 = val_corrects_2 / num_val_all
-        val_average_loss_1 = val_loss_1 / num_val_all / 7
-        val_average_loss_2 = val_loss_2 / num_val_all
-        print('epoch: {:4d} '
-              'train time: {:2.0f}m{:2.0f}s'
+        val_accuracy_1 = val_corrects_1 / (num_val_all * 7)
+        val_accuracy_2 = val_corrects_2 / num_val_we_use
+        val_average_loss_1 = val_loss_1 / (num_val_all * 7)
+        val_average_loss_2 = val_loss_2 / num_val_we_use
+
+        print('epoch: {:4d}'
+              ' train time: {:2.0f}m{:2.0f}s'
               ' train loss_1: {:4.4f}'
               ' train accu_1: {:.4f}'
               ' valid time: {:2.0f}m{:2.0f}s'
@@ -540,15 +605,86 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_val2_" + str(save_val_2) \
                   + ".pkl"
 
+
+    # print(model_name)
+    # print(record_name)
     with open(record_name, 'wb') as f:
         pickle.dump(all_info, f)
     print()
 
 
 def main():
+    # data_path = 'train_val_test_paths_labels.pkl'
+    # with open(data_path, 'rb') as f:
+    #     train_test_paths_labels = pickle.load(f)
+    # train_labels = train_test_paths_labels[3]
+    # test_labels = train_test_paths_labels[5]
+    #
+    # print(len(train_labels))
+    # print(train_labels[0])
+    # print(len(test_labels))
+    #
+    # train_labels = np.asarray(train_labels, dtype=np.int64)
+    # test_labels = np.asarray(test_labels, dtype=np.int64)
+    #
+    # train_labels_1 = train_labels[:, 0:7]
+    # train_labels_2 = train_labels[:, -1]
+    # test_labels_1 = test_labels[:, 0:7]
+    # test_labels_2 = test_labels[:, -1]
+    #
+    # sum1 = 0
+    # sum2 = 0
+    # sum3 = 0
+    # sum4 = 0
+    # sum5 = 0
+    # sum6 = 0
+    # sum7 = 0
+    #
+    # for i in range(train_labels_2.shape[0]):
+    #     if train_labels_2[i] == 0:
+    #         sum1 += 1
+    #     elif train_labels_2[i] == 1:
+    #         sum2 += 1
+    #     elif train_labels_2[i] == 2:
+    #         sum3 += 1
+    #     elif train_labels_2[i] == 3:
+    #         sum4 += 1
+    #     elif train_labels_2[i] == 4:
+    #         sum5 += 1
+    #     elif train_labels_2[i] == 5:
+    #         sum6 += 1
+    #     elif train_labels_2[i] == 6:
+    #         sum7 += 1
+    #
+    # print(sum1, sum2, sum3, sum4, sum5, sum6, sum7)
+    # print(sum1+sum2+sum3+sum4+sum5+sum6+sum7)
+    # for i in range(test_labels_2.shape[0]):
+    #     if test_labels_2[i] == 0:
+    #         sum1 += 1
+    #     elif test_labels_2[i] == 1:
+    #         sum2 += 1
+    #     elif test_labels_2[i] == 2:
+    #         sum3 += 1
+    #     elif test_labels_2[i] == 3:
+    #         sum4 += 1
+    #     elif test_labels_2[i] == 4:
+    #         sum5 += 1
+    #     elif test_labels_2[i] == 5:
+    #         sum6 += 1
+    #     elif test_labels_2[i] == 6:
+    #         sum7 += 1
+    # print(sum1, sum2, sum3, sum4, sum5, sum6, sum7)
+    # print(sum1 + sum2 + sum3 + sum4 + sum5 + sum6 + sum7)
+    #
+    # x3 = np.sum(train_labels_1, axis=0)
+    # print(x3)
+    # x4 = np.sum(test_labels_1, axis=0)
+    # print(x4)
+    # x5 = x3 + x4
+    # print(x5)
+
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
-
 
 if __name__ == "__main__":
     main()

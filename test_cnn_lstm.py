@@ -35,8 +35,7 @@ workers = args.work
 crop_type = args.crop
 
 model_pure_name, _ = os.path.splitext(model_name)
-pred_1_name = model_pure_name + '_pred_1.pkl'
-pred_2_name = model_pure_name + '_pred_2.pkl'
+
 
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
@@ -46,7 +45,7 @@ print('sequence length : {:6d}'.format(sequence_length))
 print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
-
+print('name of this model: {:s}'.format(model_name))    # so we can store all result in the same file
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -218,6 +217,7 @@ def test_model(test_dataset, test_num_each):
     test_useful_start_idx = get_useful_start_idx(sequence_length, test_num_each)
 
     num_test_we_use = len(test_useful_start_idx)
+    # 其实需要除以gpu个数再乘以gpu个数，但是为了保证所有都测试到，尽量保证test个数完整
     # num_test_we_use = 804
 
     test_we_use_start_idx = test_useful_start_idx[0:num_test_we_use]
@@ -259,7 +259,6 @@ def test_model(test_dataset, test_num_each):
     model.eval()
     test_loss_1 = 0.0
     test_loss_2 = 0.0
-    test_corrects_1 = 0
     test_corrects_2 = 0
 
     test_start_time = time.time()
@@ -279,7 +278,7 @@ def test_model(test_dataset, test_num_each):
         else:
             inputs = Variable(inputs, volatile=True)
             labels_1 = Variable(labels_1, volatile=True)
-            labels_2 = Variable(labels_2, volatile=True)
+            labels_2 = Variable(labels_2, voatile=True)
 
         if crop_type == 0 or crop_type == 1:
             outputs_1, outputs_2 = model.forward(inputs)
@@ -312,11 +311,11 @@ def test_model(test_dataset, test_num_each):
             all_preds_2.append(preds_2[i])
         print('preds_1: {:6d} preds_2: {:6d}'.format(len(all_preds_1), len(all_preds_2)))
 
-        labels_1 = Variable(labels_1.data.float())
-        loss_1 = criterion_1(outputs_1, labels_1)
-        loss_2 = criterion_2(outputs_2, labels_2)
+        # labels_1 = Variable(labels_1.data.float())
+        # loss_1 = criterion_1(outputs_1, labels_1)
 
-        test_loss_1 += loss_1.data[0]
+        # test_loss_1 += loss_1.data[0]
+        loss_2 = criterion_2(outputs_2, labels_2)
         test_loss_2 += loss_2.data[0]
         test_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
@@ -340,21 +339,33 @@ def test_model(test_dataset, test_num_each):
 
     pt_preds_1 = torch.from_numpy(np.asarray(all_preds_1_cor, dtype=np.float32))
     pt_labels_1 = torch.from_numpy(np.asarray(all_labels_1_cor, dtype=np.float32))
-    print('pt preds_1 :', pt_preds_1.size())
-    print('pt labels_1:', pt_labels_1.size())
+    pt_labels_1 = Variable(pt_labels_1, requires_grad=False)
+    pt_preds_1 = Variable(pt_preds_1, requires_grad=False)
+    loss_1 = criterion_1(pt_preds_1, pt_labels_1)
+    test_loss_1 += loss_1.data[0]
+
+    pt_labels_1 = pt_labels_1.data
+    pt_preds_1 = pt_labels_1.data
     sig_out = sig_f(pt_preds_1)
     preds_cor = torch.ByteTensor(sig_out > 0.5)
     preds_cor = preds_cor.long()
     pt_labels_1 = pt_labels_1.long()
-    test_corrects_1 += torch.sum(preds_cor == pt_labels_1)
+    test_corrects_1 = torch.sum(preds_cor == pt_labels_1)
 
     test_elapsed_time = time.time() - test_start_time
     test_accuracy_1 = test_corrects_1 / num_test / 7
     test_accuracy_2 = test_corrects_2 / num_test_we_use
-    test_average_loss_1 = test_loss_1 / num_test_all / 7
+    test_average_loss_1 = test_loss_1 / num_test / 7
     test_average_loss_2 = test_loss_2 / num_test_we_use
 
     print('preds_1 num: {:6d} preds_2 num: {:6d}'.format(len(all_preds_1_cor), len(all_preds_2)))
+
+    save_test1 = int("{:4.0f}".format(test_accuracy_1 * 10000))
+    save_test2 = int("{:4.0f}".format(test_accuracy_2 * 10000))
+
+    pred_1_name = model_pure_name + '_test1_' + str(save_test1) + '_crop_' + str(crop_type) + '.pkl'
+    pred_2_name = model_pure_name + '_test2_' + str(save_test2) + '_crop_' + str(crop_type) + '.pkl'
+
     with open(pred_1_name, 'wb') as f:
         pickle.dump(all_preds_1_cor, f)
     with open(pred_2_name, 'wb') as f:
