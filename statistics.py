@@ -101,6 +101,7 @@ class CholecDataset(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
+
 class multi_lstm(torch.nn.Module):
     def __init__(self):
         super(multi_lstm, self).__init__()

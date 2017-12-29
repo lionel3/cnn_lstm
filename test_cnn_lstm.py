@@ -245,8 +245,8 @@ def test_model(test_dataset, test_num_each):
     model = multi_lstm()
     model = DataParallel(model)
     model.load_state_dict(torch.load(model_name))
-    model = model.module
-    model = DataParallel(model)
+    # model = model.module
+    # model = DataParallel(model)
 
     if use_gpu:
         model = model.cuda()
