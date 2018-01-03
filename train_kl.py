@@ -122,6 +122,8 @@ class multi_lstm(torch.nn.Module):
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
+        self.kl_fc = nn.Linear(7, 7)
+        init.xavier_uniform(self.kl_fc.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
@@ -229,7 +231,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    # num_train_we_use = 4
+    # num_train_we_use = 800
     # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
@@ -276,7 +278,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     model = multi_lstm()
     model = DataParallel(model)
-    model.load_state_dict(torch.load('cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
+    # model.load_state_dict(torch.load('cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
 
     if use_gpu:
         model = model.cuda()
@@ -300,6 +302,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.share.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': 1e-3},
                 {'params': model.module.fc.parameters(), 'lr': 1e-3},
+                {'params': model.module.kl_fc.parameters(), 'lr': 1e-3},
             ], lr=1e-4, momentum=0.9)
 
             exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
@@ -308,6 +311,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.share.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': 1e-3},
                 {'params': model.module.fc.parameters(), 'lr': 1e-3},
+                {'params': model.module.kl_fc.parameters(), 'lr': 1e-3},
             ], lr=1e-4)
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -345,6 +349,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         model.train()
         train_loss_1 = 0.0
         train_loss_2 = 0.0
+        train_loss_3 = 0.0
         train_corrects_1 = 0
         train_corrects_2 = 0
 
@@ -379,19 +384,20 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             # kl_out_2 = torch.mm(outputs_2, kl_2)
             # loss_3 = criterion_3(kl_out_2, labels_1)
 
-            kl_fc = nn.Linear(7, 7).cuda()
+
             kl_softmax = nn.Softmax().cuda()
             kl_output_1 = kl_softmax(outputs_1)
-            kl_output_2 = kl_softmax(kl_fc(outputs_2))
+            kl_output_2 = kl_softmax(model.module.kl_fc(outputs_2))
             kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
             kl_output_2 = Variable(kl_output_2.data, requires_grad=False)
-            loss_3 = criterion_3(kl_output_1, kl_output_2)
+            loss_3 = torch.abs(criterion_3(kl_output_1, kl_output_2))
             loss = loss_1 + loss_2 + loss_3
             loss.backward()
             optimizer.step()
 
             train_loss_1 += loss_1.data[0]
             train_loss_2 += loss_2.data[0]
+            train_loss_3 += loss_3.data[0]
             train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
         train_elapsed_time = time.time() - train_start_time
@@ -399,12 +405,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_accuracy_2 = train_corrects_2 / num_train_all
         train_average_loss_1 = train_loss_1 / num_train_all / 7
         train_average_loss_2 = train_loss_2 / num_train_all
+        train_average_loss_3 = train_loss_3 / num_train_all
 
         # begin eval
 
         model.eval()
         val_loss_1 = 0.0
         val_loss_2 = 0.0
+        val_loss_3 = 0.0
         val_corrects_1 = 0
         val_corrects_2 = 0
 
@@ -455,6 +463,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             loss_2 = criterion_2(outputs_2, labels_2)
             val_loss_2 += loss_2.data[0]
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
+
+            kl_softmax = nn.Softmax().cuda()
+            kl_output_1 = kl_softmax(outputs_1[sequence_length - 1::sequence_length])
+            kl_output_2 = kl_softmax(model.module.kl_fc(outputs_2))
+            kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
+            kl_output_2 = Variable(kl_output_2.data, requires_grad=False)
+            loss_3 = torch.abs(criterion_3(kl_output_1, kl_output_2))
+            val_loss_3 += loss_3.data[0]
 
         # all_preds_1 = []
         # all_labels_1 = []
@@ -509,42 +525,41 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_accuracy_2 = val_corrects_2 / num_val_we_use
         val_average_loss_1 = val_loss_1 / (num_val_all * 7)
         val_average_loss_2 = val_loss_2 / num_val_we_use
+        val_average_loss_3 = val_loss_3 / num_val_we_use
 
         print('epoch: {:4d}'
               ' train time: {:2.0f}m{:2.0f}s'
-              ' train loss_1: {:4.4f}'
               ' train accu_1: {:.4f}'
-              ' valid time: {:2.0f}m{:2.0f}s'
-              ' valid loss_1: {:4.4f}'
-              ' valid accu_1: {:.4f}'
-              .format(epoch,
-                      train_elapsed_time // 60,
-                      train_elapsed_time % 60,
-                      train_average_loss_1,
-                      train_accuracy_1,
-                      val_elapsed_time // 60,
-                      val_elapsed_time % 60,
-                      val_average_loss_1,
-                      val_accuracy_1))
-        print('epoch: {:4d}'
-              ' train time: {:2.0f}m{:2.0f}s'
-              ' train loss_2: {:4.4f}'
               ' train accu_2: {:.4f}'
-              ' valid time: {:2.0f}m{:2.0f}s'
-              ' valid loss_2: {:4.4f}'
-              ' valid accu_2: {:.4f}'
+              ' train loss_1: {:4.4f}'
+              ' train loss_2: {:4.4f}'
+              ' train loss_3: {:4.4f}'
               .format(epoch,
                       train_elapsed_time // 60,
                       train_elapsed_time % 60,
-                      train_average_loss_2,
+                      train_accuracy_1,
                       train_accuracy_2,
+                      train_average_loss_1,
+                      train_average_loss_2,
+                      train_average_loss_3))
+        print('epoch: {:4d}'
+              ' valid time: {:2.0f}m{:2.0f}s'
+              ' valid accu_1: {:.4f}'
+              ' valid accu_2: {:.4f}'
+              ' valid loss_1: {:4.4f}'
+              ' valid loss_2: {:4.4f}'
+              ' valid loss_3: {:4.4f}'
+              .format(epoch,
                       val_elapsed_time // 60,
                       val_elapsed_time % 60,
+                      val_accuracy_1,
+                      val_accuracy_2,
+                      val_average_loss_1,
                       val_average_loss_2,
-                      val_accuracy_2))
+                      val_average_loss_3))
 
         if optimizer_choice == 0:
-            exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
+            exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2 + val_average_loss_3)
 
         if val_accuracy_2 > best_val_accuracy_2 and val_accuracy_1 > 0.95:
             best_val_accuracy_2 = val_accuracy_2
@@ -587,11 +602,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
+
     save_val_1 = int("{:4.0f}".format(best_val_accuracy_1 * 10000))
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    model_name = "cnn_lstm" \
+    model_name = "kl" \
                  + "_epoch_" + str(epochs) \
                  + "_length_" + str(sequence_length) \
                  + "_opt_" + str(optimizer_choice) \
@@ -607,7 +623,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     torch.save(best_model_wts, model_name)
 
-    record_name = "cnn_lstm" \
+    record_name = "kl" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
@@ -620,7 +636,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_val1_" + str(save_val_1) \
                   + "_val2_" + str(save_val_2) \
                   + ".pkl"
-
 
     # print(model_name)
     # print(record_name)
