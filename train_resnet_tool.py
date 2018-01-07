@@ -239,7 +239,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.SGD([
+            optimizer = optim.Adam([
                 {'params': model.module.share.parameters()},
                 {'params': model.module.fc1.parameters(), 'lr': 1e-3},
             ], lr=1e-4)

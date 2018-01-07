@@ -122,8 +122,8 @@ class multi_lstm(torch.nn.Module):
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
-        self.kl_fc = nn.Linear(7, 7)
-        init.xavier_uniform(self.kl_fc.weight)
+        # self.kl_fc = nn.Linear(7, 7)
+        # init.xavier_uniform(self.kl_fc.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
@@ -278,8 +278,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     model = multi_lstm()
     model = DataParallel(model)
-    # model.load_state_dict(torch.load('cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
-
+    model.load_state_dict(torch.load('cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
+    kl_fc = nn.Linear(7, 7)
+    init.kaiming_normal(kl_fc.weight)
+    
+    for param in model.module.parameters():
+        param.requires_grad=False
+    for param in kl_fc.parameters():
+        param.requires_grad=True
     if use_gpu:
         model = model.cuda()
     # for param in model.module.fc.parameters():
@@ -302,16 +308,16 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.share.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': 1e-3},
                 {'params': model.module.fc.parameters(), 'lr': 1e-3},
-                {'params': model.module.kl_fc.parameters(), 'lr': 1e-3},
+                {'params': kl_fc.parameters(), 'lr': 1e-3},
             ], lr=1e-4, momentum=0.9)
 
             exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.SGD([
+            optimizer = optim.Adam([
                 {'params': model.module.share.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': 1e-3},
                 {'params': model.module.fc.parameters(), 'lr': 1e-3},
-                {'params': model.module.kl_fc.parameters(), 'lr': 1e-3},
+                {'params': kl_fc.parameters(), 'lr': 1e-3},
             ], lr=1e-4)
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -387,8 +393,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             kl_softmax = nn.Softmax().cuda()
             kl_output_1 = kl_softmax(outputs_1)
-            kl_output_2 = kl_softmax(model.module.kl_fc(outputs_2))
-            kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
+            kl_output_2 = kl_softmax(kl_fc(outputs_2))
+            # kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
             kl_output_2 = Variable(kl_output_2.data, requires_grad=False)
             loss_3 = torch.abs(criterion_3(kl_output_1, kl_output_2))
             loss = loss_1 + loss_2 + loss_3
@@ -466,7 +472,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             kl_softmax = nn.Softmax().cuda()
             kl_output_1 = kl_softmax(outputs_1[sequence_length - 1::sequence_length])
-            kl_output_2 = kl_softmax(model.module.kl_fc(outputs_2))
+            kl_output_2 = kl_softmax(kl_fc(outputs_2))
             kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
             kl_output_2 = Variable(kl_output_2.data, requires_grad=False)
             loss_3 = torch.abs(criterion_3(kl_output_1, kl_output_2))
@@ -643,6 +649,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pickle.dump(all_info, f)
     print()
 
+
+    transforms.Resize
 
 def main():
 
