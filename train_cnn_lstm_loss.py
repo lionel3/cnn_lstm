@@ -18,7 +18,7 @@ import copy
 import random
 import numbers
 
-parser = argparse.ArgumentParser(description='cnn_lstm_kl training')
+parser = argparse.ArgumentParser(description='cnn_lstm_loss training')
 parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
@@ -491,15 +491,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             loss_1 = criterion_1(outputs_1, labels_1)
             loss_2 = criterion_2(outputs_2, labels_2)
 
-            softmax = nn.Softmax().cuda()
-            soft_output_1 = softmax(outputs_1)
-            soft_output_2 = softmax(outputs_2)
-            kl_output_1 = softmax(kl_fc_t2p(outputs_1))
-            kl_output_2 = softmax(kl_fc_p2t(outputs_2))
-            soft_output_1 = Variable(soft_output_1.data, requires_grad=False)
-            soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
-            loss_3 = torch.abs(criterion_3(kl_output_1, soft_output_2))
-            loss_4 = torch.abs(criterion_3(kl_output_2, soft_output_1))
+            kl_output_1 = kl_fc_t2p(outputs_1)
+            kl_output_2 = kl_fc_p2t(outputs_2)
+            loss_3 = criterion_2(kl_output_1, labels_2)
+            loss_4 = criterion_1(kl_output_2, labels_1)
             loss = loss_1 + loss_2 + loss_3 + loss_4
             loss.backward()
             optimizer.step()
@@ -576,15 +571,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             val_loss_2 += loss_2.data[0]
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
-            softmax = nn.Softmax().cuda()
-            soft_output_1 = softmax(outputs_1)
-            soft_output_2 = softmax(outputs_2)
-            kl_output_1 = softmax(kl_fc_t2p(outputs_1))
-            kl_output_2 = softmax(kl_fc_p2t(outputs_2))
-            soft_output_1 = Variable(soft_output_1.data, requires_grad=False)
-            soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
-            loss_3 = torch.abs(criterion_3(kl_output_1, soft_output_2))
-            loss_4 = torch.abs(criterion_3(kl_output_2, soft_output_1))
+            kl_output_1 = kl_fc_t2p(outputs_1)
+            kl_output_2 = kl_fc_p2t(outputs_2)
+            loss_3 = criterion_2(kl_output_1, labels_2)
+            loss_4 = criterion_1(kl_output_2, labels_1)
 
             val_loss_3 += loss_3.data[0]
             val_loss_4 += loss_4.data[0]
@@ -679,7 +669,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    model_name = "cnn_lstm_kl" \
+    model_name = "cnn_lstm_loss" \
                  + "_epoch_" + str(epochs) \
                  + "_length_" + str(sequence_length) \
                  + "_opt_" + str(optimizer_choice) \
@@ -695,7 +685,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     torch.save(best_model_wts, model_name)
 
-    record_name = "cnn_lstm_kl" \
+    record_name = "cnn_lstm_loss" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \

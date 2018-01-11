@@ -3,7 +3,6 @@ import numpy as np
 
 
 def main():
-
     # 统计数据个数
 
     data_path = 'train_val_test_paths_labels.pkl'
@@ -64,6 +63,8 @@ def main():
     print(all_tool_to_phase)
     print(all_phase_to_tool)
 
+    np.save('kl_fc_p2t', all_phase_to_tool)
+    np.save('kl_fc_t2p', all_tool_to_phase)
 
 
 if __name__ == "__main__":
