@@ -4,23 +4,22 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 import torch.nn.init as init
-import torchvision
-from torchvision import datasets, models, transforms, utils
+from torchvision import models, transforms
 from torch.utils.data import Dataset, DataLoader
-from torchvision.datasets import ImageFolder
 from torch.nn import DataParallel
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import time
 import pickle
 import numpy as np
+from torchvision.transforms import Lambda
 import argparse
 import copy
-from torchvision.transforms import Lambda
 import random
+import numbers
 
-parser = argparse.ArgumentParser(description='cnn_lstm Training')
-parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
+parser = argparse.ArgumentParser(description='cnn_lstm training')
+parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
@@ -30,10 +29,18 @@ parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train a
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
 parser.add_argument('-f', '--flip', default=0, type=int, help='0 for not flip, 1 for flip, default 0')
 parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
+parser.add_argument('-l', '--lr', default=1e-3, type=float, help='learning rate for optimizer, default 1e-3')
+parser.add_argument('--momentum', default=0.9, type=float, help='momentum for sgd, default 0.9')
+parser.add_argument('--weightdecay', default=0, type=float, help='weight decay for sgd, default 0')
+parser.add_argument('--dampening', default=0, type=float, help='dampening for sgd, default 0')
+parser.add_argument('--nesterov', default=False, type=bool, help='nesterov momentum, default False')
+parser.add_argument('--sgdadjust', default=1, type=int, help='sgd method adjust lr 0 for step 1 for min, default 1')
+parser.add_argument('--sgdstep', default=5, type=int, help='number of steps to adjust lr for sgd, default 5')
+parser.add_argument('--sgdgamma', default=0.1, type=float, help='gamma of steps to adjust lr for sgd, default 0.1')
 
 args = parser.parse_args()
+
 gpu_usg = ",".join(list(map(str, args.gpu)))
-os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 sequence_length = args.seq
 train_batch_size = args.train
 val_batch_size = args.val
@@ -41,9 +48,19 @@ optimizer_choice = args.opt
 multi_optim = args.multi
 epochs = args.epo
 workers = args.work
-crop_type = args.crop
 use_flip = args.flip
+crop_type = args.crop
+learning_rate = args.lr
+momentum = args.momentum
+weight_decay = args.weightdecay
+dampening = args.dampening
+use_nesterov = args.nesterov
 
+sgd_adjust_lr = args.sgdadjust
+sgd_step = args.sgdstep
+sgd_gamma = args.sgdgamma
+
+os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 
@@ -57,12 +74,48 @@ print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
 print('whether to flip : {:6d}'.format(use_flip))
+print('learning rate   : {:.4f}'.format(learning_rate))
+print('momentum for sgd: {:.4f}'.format(momentum))
+print('weight decay    : {:.4f}'.format(weight_decay))
+print('dampening       : {:.4f}'.format(dampening))
+print('use nesterov    : {:6d}'.format(use_nesterov))
+print('method for sgd  : {:6d}'.format(sgd_adjust_lr))
+print('step for sgd    : {:6d}'.format(sgd_step))
+print('gamma for sgd   : {:.4f}'.format(sgd_gamma))
 
 
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
+
+class RandomCrop(object):
+
+    def __init__(self, size, padding=0):
+        if isinstance(size, numbers.Number):
+            self.size = (int(size), int(size))
+        else:
+            self.size = size
+        self.padding = padding
+        self.count = 0
+
+    def __call__(self, img):
+
+        if self.padding > 0:
+            img = ImageOps.expand(img, border=self.padding, fill=0)
+
+        w, h = img.size
+        th, tw = self.size
+        if w == tw and h == th:
+            return img
+
+        random.seed(self.count // sequence_length)
+        x1 = random.randint(0, w - tw)
+        y1 = random.randint(0, h - th)
+        # print(self.count, x1, y1)
+        self.count += 1
+        return img.crop((x1, y1, x1 + tw, y1 + th))
 
 
 class RandomHorizontalFlip(object):
@@ -95,11 +148,11 @@ class CholecDataset(Dataset):
         imgs = self.loader(img_names)
         if self.transform is not None:
             imgs = self.transform(imgs)
-
         return imgs, labels_1, labels_2
 
     def __len__(self):
         return len(self.file_paths)
+
 
 class multi_lstm(torch.nn.Module):
     def __init__(self):
@@ -115,7 +168,7 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
         self.fc = nn.Linear(512, 7)
         self.fc2 = nn.Linear(2048, 7)
         init.xavier_normal(self.lstm.all_weights[0][0])
@@ -171,13 +224,13 @@ def get_data(data_path):
 
     if use_flip == 0:
         train_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
     elif use_flip == 1:
         train_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
@@ -185,7 +238,7 @@ def get_data(data_path):
 
     if crop_type == 0:
         test_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
@@ -284,25 +337,32 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, dampening=dampening,
+                                  weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam(model.parameters())
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     elif multi_optim == 1:
         if optimizer_choice == 0:
             optimizer = optim.SGD([
                 {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
-                {'params': model.module.fc.parameters(), 'lr': 1e-3},
-            ], lr=1e-4, momentum=0.9)
-
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
+                weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
             optimizer = optim.Adam([
                 {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
-                {'params': model.module.fc.parameters(), 'lr': 1e-3},
-            ], lr=1e-4)
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10)
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_val_accuracy_1 = 0.0
@@ -390,7 +450,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_loss_2 = 0.0
         val_corrects_1 = 0
         val_corrects_2 = 0
-
 
         val_start_time = time.time()
         for data in val_loader:
@@ -528,7 +587,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       val_accuracy_2))
 
         if optimizer_choice == 0:
-            exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler.step()
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
 
         if val_accuracy_2 > best_val_accuracy_2 and val_accuracy_1 > 0.95:
             best_val_accuracy_2 = val_accuracy_2
@@ -586,7 +648,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                  + "_train1_" + str(save_train_1) \
                  + "_train2_" + str(save_train_2) \
                  + "_val1_" + str(save_val_1) \
-                 + "_val2_" + str(save_val_2)\
+                 + "_val2_" + str(save_val_2) \
                  + ".pth"
 
     torch.save(best_model_wts, model_name)
@@ -605,7 +667,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_val2_" + str(save_val_2) \
                   + ".pkl"
 
-
     # print(model_name)
     # print(record_name)
     with open(record_name, 'wb') as f:
@@ -614,7 +675,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
 
 def main():
-
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
 

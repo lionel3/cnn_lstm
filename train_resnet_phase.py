@@ -211,7 +211,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     criterion = nn.CrossEntropyLoss(size_average=False)
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+            optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
             exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
             optimizer = optim.Adam(model.parameters())
@@ -342,7 +342,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
-    model_name = "pure" \
+    model_name = "phase" \
                  + "_epoch_" + str(epochs) \
                  + "_opt_" + str(optimizer_choice) \
                  + "_mulopt_" + str(multi_optim) \
@@ -357,7 +357,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    record_name = "pure" \
+    record_name = "phase" \
                   + "_epoch_" + str(epochs) \
                   + "_opt_" + str(optimizer_choice) \
                   + "_mulopt_" + str(multi_optim) \

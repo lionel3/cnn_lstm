@@ -8,17 +8,18 @@ from torchvision import models, transforms
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import DataParallel
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import time
 import pickle
 import numpy as np
+from torchvision.transforms import Lambda
 import argparse
 import copy
-from torchvision.transforms import Lambda
 import random
+import numbers
 
-parser = argparse.ArgumentParser(description='kl training')
-parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
+parser = argparse.ArgumentParser(description='lstm_dp training')
+parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
@@ -29,6 +30,13 @@ parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to
 parser.add_argument('-f', '--flip', default=0, type=int, help='0 for not flip, 1 for flip, default 0')
 parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
 parser.add_argument('-l', '--lr', default=1e-3, type=float, help='learning rate for optimizer, default 1e-3')
+parser.add_argument('--momentum', default=0.9, type=float, help='momentum for sgd, default 0.9')
+parser.add_argument('--weightdecay', default=0, type=float, help='weight decay for sgd, default 0')
+parser.add_argument('--dampening', default=0, type=float, help='dampening for sgd, default 0')
+parser.add_argument('--nesterov', default=False, type=bool, help='nesterov momentum, default False')
+parser.add_argument('--sgdadjust', default=1, type=int, help='sgd method adjust lr 0 for step 1 for min, default 1')
+parser.add_argument('--sgdstep', default=5, type=int, help='number of steps to adjust lr for sgd, default 5')
+parser.add_argument('--sgdgamma', default=0.1, type=float, help='gamma of steps to adjust lr for sgd, default 0.1')
 
 args = parser.parse_args()
 
@@ -42,7 +50,15 @@ epochs = args.epo
 workers = args.work
 use_flip = args.flip
 crop_type = args.crop
-learing_rate = args.lr
+learning_rate = args.lr
+momentum = args.momentum
+weight_decay = args.weightdecay
+dampening = args.dampening
+use_nesterov = args.nesterov
+
+sgd_adjust_lr = args.sgdadjust
+sgd_step = args.sgdstep
+sgd_gamma = args.sgdgamma
 
 os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 num_gpu = torch.cuda.device_count()
@@ -58,7 +74,14 @@ print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
 print('whether to flip : {:6d}'.format(use_flip))
-print('learning rate   : {:.4f}'.format(learing_rate))
+print('learning rate   : {:.4f}'.format(learning_rate))
+print('momentum for sgd: {:.4f}'.format(momentum))
+print('weight decay    : {:.4f}'.format(weight_decay))
+print('dampening       : {:.4f}'.format(dampening))
+print('use nesterov    : {:6d}'.format(use_nesterov))
+print('method for sgd  : {:6d}'.format(sgd_adjust_lr))
+print('step for sgd    : {:6d}'.format(sgd_step))
+print('gamma for sgd   : {:.4f}'.format(sgd_gamma))
 
 
 def pil_loader(path):
@@ -67,15 +90,45 @@ def pil_loader(path):
             return img.convert('RGB')
 
 
+class RandomCrop(object):
+
+    def __init__(self, size, padding=0):
+        if isinstance(size, numbers.Number):
+            self.size = (int(size), int(size))
+        else:
+            self.size = size
+        self.padding = padding
+        self.count = 0
+
+    def __call__(self, img):
+
+        if self.padding > 0:
+            img = ImageOps.expand(img, border=self.padding, fill=0)
+
+        w, h = img.size
+        th, tw = self.size
+        if w == tw and h == th:
+            return img
+
+        random.seed(self.count // sequence_length)
+        x1 = random.randint(0, w - tw)
+        y1 = random.randint(0, h - th)
+        # print(self.count, x1, y1)
+        self.count += 1
+        return img.crop((x1, y1, x1 + tw, y1 + th))
+
+
 class RandomHorizontalFlip(object):
     def __init__(self):
         self.count = 0
 
     def __call__(self, img):
         seed = self.count // sequence_length
-        self.count += 1
         random.seed(seed)
-        if random.random() < 0.5:
+        prob = random.random()
+        self.count += 1
+        # print(self.count, seed, prob)
+        if prob < 0.5:
             return img.transpose(Image.FLIP_LEFT_RIGHT)
         return img
 
@@ -87,7 +140,6 @@ class CholecDataset(Dataset):
         self.file_labels_1 = file_labels[:, range(7)]
         self.file_labels_2 = file_labels[:, -1]
         self.transform = transform
-        # self.target_transform=target_transform
         self.loader = loader
 
     def __getitem__(self, index):
@@ -104,9 +156,9 @@ class CholecDataset(Dataset):
         return len(self.file_paths)
 
 
-class multi_lstm(torch.nn.Module):
+class resnet_lstm_dp(torch.nn.Module):
     def __init__(self):
-        super(multi_lstm, self).__init__()
+        super(resnet_lstm_dp, self).__init__()
         resnet = models.resnet50(pretrained=True)
         self.share = torch.nn.Sequential()
         self.share.add_module("conv1", resnet.conv1)
@@ -120,22 +172,20 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("avgpool", resnet.avgpool)
         self.lstm = nn.LSTM(2048, 512, batch_first=True)
         self.fc = nn.Linear(512, 7)
-        self.fc2 = nn.Linear(2048, 7)
+
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
-        init.xavier_uniform(self.fc2.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        z = self.fc2(x)
         x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
         y = self.fc(y)
-        return z, y
+        return y
 
 
 def get_useful_start_idx(sequence_length, list_each_length):
@@ -174,13 +224,13 @@ def get_data(data_path):
 
     if use_flip == 0:
         train_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
     elif use_flip == 1:
         train_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
@@ -188,7 +238,7 @@ def get_data(data_path):
 
     if crop_type == 0:
         test_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
@@ -223,7 +273,6 @@ def get_data(data_path):
 
 
 def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
-
     num_train = len(train_dataset)
     num_val = len(val_dataset)
 
@@ -232,12 +281,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    # num_train_we_use = 800
+    # num_train_we_use = 8000
     # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
+    #    np.random.seed(0)
+    # np.random.shuffle(train_we_use_start_idx)
     train_idx = []
     for i in range(num_train_we_use):
         for j in range(sequence_length):
@@ -250,15 +301,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-
+    print('num of train dataset: {:6d}'.format(num_train))
     print('num train start idx : {:6d}'.format(len(train_useful_start_idx)))
     print('last idx train start: {:6d}'.format(train_useful_start_idx[-1]))
-    print('num of train dataset: {:6d}'.format(num_train))
     print('num of train we use : {:6d}'.format(num_train_we_use))
     print('num of all train use: {:6d}'.format(num_train_all))
+    print('num of valid dataset: {:6d}'.format(num_val))
     print('num valid start idx : {:6d}'.format(len(val_useful_start_idx)))
     print('last idx valid start: {:6d}'.format(val_useful_start_idx[-1]))
-    print('num of valid dataset: {:6d}'.format(num_val))
     print('num of valid we use : {:6d}'.format(num_val_we_use))
     print('num of all valid use: {:6d}'.format(num_val_all))
 
@@ -276,41 +326,54 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         num_workers=workers,
         pin_memory=False
     )
-
-    model = multi_lstm()
-    model = DataParallel(model)
-    model.load_state_dict(torch.load('cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
-
-    kl_fc_p2t = nn.Linear(7, 7)
-    # kl_fc_t2p = nn.Linear(7, 7)
-
-    for param in model.module.parameters():
-        param.requires_grad = False
-    for param in kl_fc_p2t.parameters():
-        param.requires_grad = True
-
+    model = resnet_lstm_dp()
     if use_gpu:
-        kl_fc_p2t = kl_fc_p2t.cuda()
+        model = model.cuda()
 
-    criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
-    criterion_2 = nn.CrossEntropyLoss(size_average=False)
-    criterion_3 = nn.KLDivLoss(size_average=False)
-    sig_f = nn.Sigmoid()
+    model = DataParallel(model)
+    criterion = nn.CrossEntropyLoss(size_average=False)
 
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD(kl_fc_p2t.parameters(), lr=learing_rate, momentum=0.9)
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, dampening=dampening,
+                                  weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam(kl_fc_p2t.parameters(), lr=learing_rate)
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     elif multi_optim == 1:
         if optimizer_choice == 0:
-            optimizer = optim.SGD(kl_fc_p2t.parameters(), lr=learing_rate, momentum=0.9)
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
+                weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam(kl_fc_p2t.parameters(), lr=learing_rate)
+            optimizer = optim.Adam([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10)
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_val_accuracy = 0.0
+    correspond_train_acc = 0.0
+
+    all_info = []
+    all_train_accuracy = []
+    all_train_loss = []
+    all_val_accuracy = []
+    all_val_loss = []
 
     for epoch in range(epochs):
+        # np.random.seed(epoch)
         np.random.shuffle(train_we_use_start_idx)
         train_idx = []
         for i in range(num_train_we_use):
@@ -325,172 +388,148 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             pin_memory=False
         )
 
-        kl_fc_p2t.train()
-
-        train_loss_1 = 0.0
-        train_loss_2 = 0.0
-        train_loss_3 = 0.0
-        train_corrects_1 = 0
-        train_corrects_2 = 0
-
+        model.train()
+        train_loss = 0.0
+        train_corrects = 0
         train_start_time = time.time()
         for data in train_loader:
             inputs, labels_1, labels_2 = data
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels_1 = Variable(labels_1.cuda())
-                labels_2 = Variable(labels_2.cuda())
+                labels = Variable(labels_2.cuda())
             else:
                 inputs = Variable(inputs)
-                labels_1 = Variable(labels_1)
-                labels_2 = Variable(labels_2)
-
+                labels = Variable(labels_2)
             optimizer.zero_grad()
+            outputs = model.forward(inputs)
+            _, preds = torch.max(outputs.data, 1)
 
-            outputs_1, outputs_2 = model.forward(inputs)
-
-            _, preds_2 = torch.max(outputs_2.data, 1)
-
-            sig_out = outputs_1.data.cpu()
-            sig_out = sig_f(sig_out)
-            preds_1 = torch.ByteTensor(sig_out > 0.5)
-            preds_1 = preds_1.long()
-            train_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())
-            labels_1 = Variable(labels_1.data.float())
-            loss_1 = criterion_1(outputs_1, labels_1)
-            loss_2 = criterion_2(outputs_2, labels_2)
-
-
-            kl_softmax = nn.Softmax().cuda()
-            kl_output_1 = kl_softmax(outputs_1)
-            kl_output_2 = kl_softmax(kl_fc_p2t(outputs_2))
-            kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
-            loss_3 = torch.abs(criterion_3(kl_output_2, kl_output_1))
-            loss = loss_3
+            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            train_loss_1 += loss_1.data[0]
-            train_loss_2 += loss_2.data[0]
-            train_loss_3 += loss_3.data[0]
-            train_corrects_2 += torch.sum(preds_2 == labels_2.data)
-
+            train_loss += loss.data[0]
+            train_corrects += torch.sum(preds == labels.data)
         train_elapsed_time = time.time() - train_start_time
-        train_accuracy_1 = train_corrects_1 / num_train_all / 7
-        train_accuracy_2 = train_corrects_2 / num_train_all
-        train_average_loss_1 = train_loss_1 / num_train_all / 7
-        train_average_loss_2 = train_loss_2 / num_train_all
-        train_average_loss_3 = train_loss_3 / num_train_all
+        train_accuracy = train_corrects / num_train_all
+        train_average_loss = train_loss / num_train_all
 
         # begin eval
-
-        kl_fc_p2t.eval()
-
-        val_loss_1 = 0.0
-        val_loss_2 = 0.0
-        val_loss_3 = 0.0
-        val_corrects_1 = 0
-        val_corrects_2 = 0
-
+        model.eval()
+        val_loss = 0.0
+        val_corrects = 0
         val_start_time = time.time()
         for data in val_loader:
             inputs, labels_1, labels_2 = data
-            labels_2 = labels_2[(sequence_length - 1):: sequence_length]
+            labels_2 = labels_2[(sequence_length - 1)::sequence_length]
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels_1 = Variable(labels_1.cuda())
-                labels_2 = Variable(labels_2.cuda())
+                labels = Variable(labels_2.cuda())
             else:
                 inputs = Variable(inputs)
-                labels_1 = Variable(labels_1)
-                labels_2 = Variable(labels_2)
+                labels = Variable(labels_2)
 
             if crop_type == 0 or crop_type == 1:
-                outputs_1, outputs_2 = model.forward(inputs)
+                outputs = model.forward(inputs)
             elif crop_type == 5:
                 inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
                 inputs = inputs.view(-1, 3, 224, 224)
-                outputs_1, outputs_2 = model.forward(inputs)
-                outputs_1 = outputs_1.view(5, -1, 7)
-                outputs_1 = torch.mean(outputs_1, 0)
-                outputs_2 = outputs_2.view(5, -1, 7)
-                outputs_2 = torch.mean(outputs_2, 0)
+                outputs = model.forward(inputs)
+                outputs = outputs.view(5, -1, 7)
+                outputs = torch.mean(outputs, 0)
             elif crop_type == 10:
                 inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
                 inputs = inputs.view(-1, 3, 224, 224)
-                outputs_1, outputs_2 = model.forward(inputs)
-                outputs_1 = outputs_1.view(10, -1, 7)
-                outputs_1 = torch.mean(outputs_1, 0)
-                outputs_2 = outputs_2.view(10, -1, 7)
-                outputs_2 = torch.mean(outputs_2, 0)
+                outputs = model.forward(inputs)
+                outputs = outputs.view(10, -1, 7)
+                outputs = torch.mean(outputs, 0)
 
-            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
-            _, preds_2 = torch.max(outputs_2.data, 1)
+            outputs = outputs[sequence_length - 1::sequence_length]
 
-            sig_out = outputs_1.data.cpu()
-            sig_out = sig_f(sig_out)
-            preds_1 = torch.ByteTensor(sig_out > 0.5)
-            preds_1 = preds_1.long()
-            val_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())
-            labels_1 = Variable(labels_1.data.float())
-            loss_1 = criterion_1(outputs_1, labels_1)
-            val_loss_1 += loss_1.data[0]
+            _, preds = torch.max(outputs.data, 1)
 
-            loss_2 = criterion_2(outputs_2, labels_2)
-            val_loss_2 += loss_2.data[0]
-            val_corrects_2 += torch.sum(preds_2 == labels_2.data)
-
-            kl_softmax = nn.Softmax().cuda()
-            kl_output_1 = kl_softmax(outputs_1[sequence_length - 1::sequence_length])
-            kl_output_2 = kl_softmax(kl_fc_p2t(outputs_2))
-            kl_output_1 = Variable(kl_output_1.data, requires_grad=False)
-            loss_3 = torch.abs(criterion_3(kl_output_2, kl_output_1))
-            val_loss_3 += loss_3.data[0]
-
+            loss = criterion(outputs, labels)
+            val_loss += loss.data[0]
+            val_corrects += torch.sum(preds == labels.data)
         val_elapsed_time = time.time() - val_start_time
-        val_accuracy_1 = val_corrects_1 / (num_val_all * 7)
-        val_accuracy_2 = val_corrects_2 / num_val_we_use
-        val_average_loss_1 = val_loss_1 / (num_val_all * 7)
-        val_average_loss_2 = val_loss_2 / num_val_we_use
-        val_average_loss_3 = val_loss_3 / num_val_we_use
-
+        val_accuracy = val_corrects / num_val_we_use
+        val_average_loss = val_loss / num_val_we_use
         print('epoch: {:4d}'
-              ' train time: {:2.0f}m{:2.0f}s'
-              ' train accu_1: {:.4f}'
-              ' train accu_2: {:.4f}'
-              ' train loss_1: {:4.4f}'
-              ' train loss_2: {:4.4f}'
-              ' train loss_3: {:4.4f}'
+              ' train in: {:2.0f}m{:2.0f}s'
+              ' train loss: {:4.4f}'
+              ' train accu: {:.4f}'
+              ' valid in: {:2.0f}m{:2.0f}s'
+              ' valid loss: {:4.4f}'
+              ' valid accu: {:.4f}'
               .format(epoch,
                       train_elapsed_time // 60,
                       train_elapsed_time % 60,
-                      train_accuracy_1,
-                      train_accuracy_2,
-                      train_average_loss_1,
-                      train_average_loss_2,
-                      train_average_loss_3))
-        print('epoch: {:4d}'
-              ' valid time: {:2.0f}m{:2.0f}s'
-              ' valid accu_1: {:.4f}'
-              ' valid accu_2: {:.4f}'
-              ' valid loss_1: {:4.4f}'
-              ' valid loss_2: {:4.4f}'
-              ' valid loss_3: {:4.4f}'
-              .format(epoch,
+                      train_average_loss,
+                      train_accuracy,
                       val_elapsed_time // 60,
                       val_elapsed_time % 60,
-                      val_accuracy_1,
-                      val_accuracy_2,
-                      val_average_loss_1,
-                      val_average_loss_2,
-                      val_average_loss_3))
+                      val_average_loss,
+                      val_accuracy))
 
         if optimizer_choice == 0:
-            exp_lr_scheduler.step(val_average_loss_3)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler.step()
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler.step(val_average_loss)
 
-        print(kl_fc_p2t.weight)
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            correspond_train_acc = train_accuracy
+            best_model_wts = copy.deepcopy(model.state_dict())
+        if val_accuracy == best_val_accuracy:
+            if train_accuracy > correspond_train_acc:
+                correspond_train_acc = train_accuracy
+                best_model_wts = copy.deepcopy(model.state_dict())
+        all_train_loss.append(train_average_loss)
+        all_train_accuracy.append(train_accuracy)
+        all_val_loss.append(val_average_loss)
+        all_val_accuracy.append(val_accuracy)
+
+    print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
+
+    save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
+    save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
+    model_name = "lstm" \
+                 + "_epoch_" + str(epochs) \
+                 + "_length_" + str(sequence_length) \
+                 + "_opt_" + str(optimizer_choice) \
+                 + "_mulopt_" + str(multi_optim) \
+                 + "_flip_" + str(use_flip) \
+                 + "_crop_" + str(crop_type) \
+                 + "_batch_" + str(train_batch_size) \
+                 + "_train_" + str(save_train) \
+                 + "_val_" + str(save_val) \
+                 + ".pth"
+
+    torch.save(best_model_wts, model_name)
+
+    all_info.append(all_train_accuracy)
+    all_info.append(all_train_loss)
+    all_info.append(all_val_accuracy)
+    all_info.append(all_val_loss)
+
+    record_name = "lstm" \
+                  + "_epoch_" + str(epochs) \
+                  + "_length_" + str(sequence_length) \
+                  + "_opt_" + str(optimizer_choice) \
+                  + "_mulopt_" + str(multi_optim) \
+                  + "_flip_" + str(use_flip) \
+                  + "_crop_" + str(crop_type) \
+                  + "_batch_" + str(train_batch_size) \
+                  + "_train_" + str(save_train) \
+                  + "_val_" + str(save_val) \
+                  + ".pkl"
+
+    with open(record_name, 'wb') as f:
+        pickle.dump(all_info, f)
+    print()
+
 
 def main():
-
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
 

@@ -1,18 +1,11 @@
-# import cv2
-# import sys
-# sys.path.append('/home/lionel/caffe/caffe/python')
-# import caffe
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 import torch.nn.init as init
-import torchvision
-from torchvision import datasets, models, transforms, utils
+from torchvision import models, transforms
 from torch.utils.data import Dataset, DataLoader
-from torchvision.datasets import ImageFolder
 from torch.nn import DataParallel
 import os
 from PIL import Image, ImageOps
@@ -25,8 +18,8 @@ import copy
 import random
 import numbers
 
-parser = argparse.ArgumentParser(description='lstm Training')
-parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
+parser = argparse.ArgumentParser(description='lstm training')
+parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
@@ -36,10 +29,18 @@ parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train a
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
 parser.add_argument('-f', '--flip', default=0, type=int, help='0 for not flip, 1 for flip, default 0')
 parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
+parser.add_argument('-l', '--lr', default=1e-3, type=float, help='learning rate for optimizer, default 1e-3')
+parser.add_argument('--momentum', default=0.9, type=float, help='momentum for sgd, default 0.9')
+parser.add_argument('--weightdecay', default=0, type=float, help='weight decay for sgd, default 0')
+parser.add_argument('--dampening', default=0, type=float, help='dampening for sgd, default 0')
+parser.add_argument('--nesterov', default=False, type=bool, help='nesterov momentum, default False')
+parser.add_argument('--sgdadjust', default=1, type=int, help='sgd method adjust lr 0 for step 1 for min, default 1')
+parser.add_argument('--sgdstep', default=5, type=int, help='number of steps to adjust lr for sgd, default 5')
+parser.add_argument('--sgdgamma', default=0.1, type=float, help='gamma of steps to adjust lr for sgd, default 0.1')
 
 args = parser.parse_args()
+
 gpu_usg = ",".join(list(map(str, args.gpu)))
-os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 sequence_length = args.seq
 train_batch_size = args.train
 val_batch_size = args.val
@@ -47,11 +48,22 @@ optimizer_choice = args.opt
 multi_optim = args.multi
 epochs = args.epo
 workers = args.work
-crop_type = args.crop
 use_flip = args.flip
+crop_type = args.crop
+learning_rate = args.lr
+momentum = args.momentum
+weight_decay = args.weightdecay
+dampening = args.dampening
+use_nesterov = args.nesterov
 
+sgd_adjust_lr = args.sgdadjust
+sgd_step = args.sgdstep
+sgd_gamma = args.sgdgamma
+
+os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
+
 print('number of gpu   : {:6d}'.format(num_gpu))
 print('sequence length : {:6d}'.format(sequence_length))
 print('train batch size: {:6d}'.format(train_batch_size))
@@ -62,6 +74,14 @@ print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
 print('whether to flip : {:6d}'.format(use_flip))
+print('learning rate   : {:.4f}'.format(learning_rate))
+print('momentum for sgd: {:.4f}'.format(momentum))
+print('weight decay    : {:.4f}'.format(weight_decay))
+print('dampening       : {:.4f}'.format(dampening))
+print('use nesterov    : {:6d}'.format(use_nesterov))
+print('method for sgd  : {:6d}'.format(sgd_adjust_lr))
+print('step for sgd    : {:6d}'.format(sgd_step))
+print('gamma for sgd   : {:.4f}'.format(sgd_gamma))
 
 
 def pil_loader(path):
@@ -112,6 +132,7 @@ class RandomHorizontalFlip(object):
             return img.transpose(Image.FLIP_LEFT_RIGHT)
         return img
 
+
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
                  loader=pil_loader):
@@ -133,6 +154,7 @@ class CholecDataset(Dataset):
 
     def __len__(self):
         return len(self.file_paths)
+
 
 class resnet_lstm(torch.nn.Module):
     def __init__(self):
@@ -165,6 +187,7 @@ class resnet_lstm(torch.nn.Module):
         y = self.fc(y)
         return y
 
+
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
     idx = []
@@ -173,6 +196,7 @@ def get_useful_start_idx(sequence_length, list_each_length):
             idx.append(j)
         count += list_each_length[i]
     return idx
+
 
 def get_data(data_path):
     with open(data_path, 'rb') as f:
@@ -206,7 +230,7 @@ def get_data(data_path):
         ])
     elif use_flip == 1:
         train_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
@@ -214,7 +238,7 @@ def get_data(data_path):
 
     if crop_type == 0:
         test_transforms = transforms.Compose([
-            transforms.RandomCrop(224),
+            RandomCrop(224),
             transforms.ToTensor(),
             transforms.Normalize([0.3456, 0.2281, 0.2233], [0.2528, 0.2135, 0.2104])
         ])
@@ -311,25 +335,32 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, dampening=dampening,
+                                  weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam(model.parameters())
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     elif multi_optim == 1:
         if optimizer_choice == 0:
             optimizer = optim.SGD([
                 {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
-                {'params': model.module.fc.parameters(), 'lr': 1e-3},
-            ], lr=1e-4, momentum=0.9)
-
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
+                weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
             optimizer = optim.Adam([
                 {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': 1e-3},
-                {'params': model.module.fc.parameters(), 'lr': 1e-3},
-            ], lr=1e-4)
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10)
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_val_accuracy = 0.0
@@ -440,7 +471,10 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       val_accuracy))
 
         if optimizer_choice == 0:
-            exp_lr_scheduler.step(val_average_loss)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler.step()
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler.step(val_average_loss)
 
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
@@ -460,7 +494,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
     model_name = "lstm" \
-                 + "_epoch_" + str(epochs)\
+                 + "_epoch_" + str(epochs) \
                  + "_length_" + str(sequence_length) \
                  + "_opt_" + str(optimizer_choice) \
                  + "_mulopt_" + str(multi_optim) \
@@ -478,8 +512,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
 
-    record_name = "lstm"\
-                  + "_epoch_" + str(epochs)\
+    record_name = "lstm" \
+                  + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
                   + "_mulopt_" + str(multi_optim) \
@@ -494,9 +528,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pickle.dump(all_info, f)
     print()
 
+
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
+
 
 if __name__ == "__main__":
     main()

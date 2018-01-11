@@ -367,7 +367,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
-    model_name = "multi" \
+    model_name = "tool" \
                  + "_epoch_" + str(epochs) \
                  + "_opt_" + str(optimizer_choice) \
                  + "_mulopt_" + str(multi_optim) \
@@ -382,7 +382,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    record_name = "multi" \
+    
+    record_name = "tool" \
                   + "_epoch_" + str(epochs) \
                   + "_opt_" + str(optimizer_choice) \
                   + "_mulopt_" + str(multi_optim) \

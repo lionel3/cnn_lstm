@@ -44,12 +44,14 @@ print('sequence length : {:6d}'.format(sequence_length))
 print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
-print('name of this model: {:s}'.format(model_name))    # so we can store all result in the same file
+print('name of this model: {:s}'.format(model_name))  # so we can store all result in the same file
+
 
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -73,7 +75,6 @@ class CholecDataset(Dataset):
 
     def __len__(self):
         return len(self.file_paths)
-
 
 
 class CholecDataset(Dataset):
@@ -130,6 +131,7 @@ class resnet_lstm(torch.nn.Module):
         y = y.contiguous().view(-1, 512)
         y = self.fc(y)
         return y
+
 
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
@@ -211,7 +213,6 @@ def test_model(test_dataset, test_num_each):
     num_test = len(test_dataset)
     test_useful_start_idx = get_useful_start_idx(sequence_length, test_num_each)
 
-
     num_test_we_use = len(test_useful_start_idx)
     # num_test_we_use = 804
     # num_test_we_use = len(test_useful_start_idx) // (test_batch_size // sequence_length) * (
@@ -258,7 +259,7 @@ def test_model(test_dataset, test_num_each):
 
     for data in test_loader:
         inputs, labels_1, labels_2 = data
-        labels_2 = labels_2[(sequence_length-1)::sequence_length]
+        labels_2 = labels_2[(sequence_length - 1)::sequence_length]
 
         if use_gpu:
             inputs = Variable(inputs.cuda(), volatile=True)
@@ -309,12 +310,15 @@ def test_model(test_dataset, test_num_each):
                   test_elapsed_time % 60,
                   test_average_loss, test_accuracy))
 
+
 print()
+
 
 def main():
     _, _, _, _, test_dataset, test_num_each = get_data('train_val_test_paths_labels.pkl')
 
     test_model(test_dataset, test_num_each)
+
 
 if __name__ == "__main__":
     main()
