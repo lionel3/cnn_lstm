@@ -438,7 +438,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     correspond_train_acc_2 = 0.0
 
     # 要存储2个train的准确率 2个valid的准确率 4个train 4个loss的loss, 一共12个数据要记录
-    record_np = np.zeros(epochs, 12)
+    record_np = np.zeros([epochs, 12])
 
     for epoch in range(epochs):
         # np.random.seed(epoch)
@@ -480,9 +480,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             outputs_1, outputs_2 = model.forward(inputs)
 
-            _, preds_2 = torch.max(outputs_2.data, 1)
+            kl_output_1 = kl_fc_t2p(outputs_1)
+            kl_output_2 = kl_fc_p2t(outputs_2)
 
-            sig_out = outputs_1.data.cpu()
+            _, preds_2 = torch.max(outputs_2.data + kl_output_1.data, 1)
+
+            sig_out = outputs_1.data.cpu() + kl_output_2.data.cpu()
             sig_out = sig_f(sig_out)
             preds_1 = torch.ByteTensor(sig_out > 0.5)
             preds_1 = preds_1.long()
@@ -491,8 +494,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             loss_1 = criterion_1(outputs_1, labels_1)
             loss_2 = criterion_2(outputs_2, labels_2)
 
-            kl_output_1 = kl_fc_t2p(outputs_1)
-            kl_output_2 = kl_fc_p2t(outputs_2)
             loss_3 = criterion_2(kl_output_1, labels_2)
             loss_4 = criterion_1(kl_output_2, labels_1)
             loss = loss_1 + loss_2 + loss_3 + loss_4
@@ -511,7 +512,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_average_loss_1 = train_loss_1 / num_train_all / 7
         train_average_loss_2 = train_loss_2 / num_train_all
         train_average_loss_3 = train_loss_3 / num_train_all
-        train_average_loss_4 = train_loss_4 / num_train_all
+        train_average_loss_4 = train_loss_4 / num_train_all / 7
 
         # begin eval
 
@@ -555,10 +556,15 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 outputs_2 = outputs_2.view(10, -1, 7)
                 outputs_2 = torch.mean(outputs_2, 0)
 
-            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
-            _, preds_2 = torch.max(outputs_2.data, 1)
+            kl_output_1 = kl_fc_t2p(outputs_1)
+            kl_output_2 = kl_fc_p2t(outputs_2)
 
-            sig_out = outputs_1.data.cpu()
+            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
+            kl_output_1 = kl_output_1[sequence_length - 1::sequence_length]
+
+            _, preds_2 = torch.max(outputs_2.data + kl_output_1.data, 1)
+
+            sig_out = outputs_1.data.cpu() + kl_output_2.data.cpu()
             sig_out = sig_f(sig_out)
             preds_1 = torch.ByteTensor(sig_out > 0.5)
             preds_1 = preds_1.long()
@@ -571,8 +577,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             val_loss_2 += loss_2.data[0]
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
-            kl_output_1 = kl_fc_t2p(outputs_1)
-            kl_output_2 = kl_fc_p2t(outputs_2)
             loss_3 = criterion_2(kl_output_1, labels_2)
             loss_4 = criterion_1(kl_output_2, labels_1)
 
@@ -584,7 +588,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_average_loss_1 = val_loss_1 / (num_val_all * 7)
         val_average_loss_2 = val_loss_2 / num_val_we_use
         val_average_loss_3 = val_loss_3 / num_val_we_use
-        val_average_loss_4 = val_loss_4 / num_val_we_use
+        val_average_loss_4 = val_loss_4 / (num_val_all * 7)
 
         print('epoch: {:3d}'
               ' train time: {:2.0f}m{:2.0f}s'

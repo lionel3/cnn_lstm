@@ -370,15 +370,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     correspond_train_acc_1 = 0.0
     correspond_train_acc_2 = 0.0
 
-    all_info = []
-    all_train_accuracy_1 = []
-    all_train_accuracy_2 = []
-    all_train_loss_1 = []
-    all_train_loss_2 = []
-    all_val_accuracy_1 = []
-    all_val_accuracy_2 = []
-    all_val_loss_1 = []
-    all_val_loss_2 = []
+    record_np = np.zeros([epochs, 8])
 
     for epoch in range(epochs):
         # np.random.seed(epoch)
@@ -499,54 +491,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             val_loss_2 += loss_2.data[0]
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
-        # all_preds_1 = []
-        # all_labels_1 = []
-
-        # for i in range(len(outputs_1)):
-        #     val_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
-        #     val_labels_1.append(labels_1[i].data.cpu().numpy().tolist())
-
-        # 类似test方法统计，但是可能不整除gpu个数，放弃
-        # val_preds_1_cor = []
-        # val_labels_1_cor = []
-        # cor_count = 0
-        #
-        # print(num_val)
-        # print(num_val_we_use)
-        # print(len(val_preds_1))
-        # print(len(val_labels_1))
-        #
-        # for i in range(len(val_num_each)):
-        #     for j in range(cor_count, cor_count + val_num_each[i] - (sequence_length - 1)):
-        #         if j == cor_count:
-        #             for k in range(sequence_length - 1):
-        #                 val_preds_1_cor.append(val_preds_1[sequence_length * j + k])
-        #                 val_labels_1_cor.append(val_labels_1[sequence_length * j + k])
-        #         val_preds_1_cor.append(val_preds_1[sequence_length * j + sequence_length - 1])
-        #         val_labels_1_cor.append(val_labels_1[sequence_length * j + sequence_length - 1])
-        #     cor_count += val_num_each[i] + 1 - sequence_length
-        #
-        # print('val_preds_1 : {:6d}'.format(len(val_preds_1)))
-        # print('val_labels_1: {:6d}'.format(len(val_labels_1)))
-        # print('cor_labels_1: {:6d}'.format(len(val_preds_1_cor)))
-        # print('cor_labels_1: {:6d}'.format(len(val_labels_1_cor)))
-        #
-        # pt_preds_1 = torch.from_numpy(np.asarray(val_preds_1_cor, dtype=np.float32))
-        # pt_labels_1 = torch.from_numpy(np.asarray(val_labels_1_cor, dtype=np.float32))
-        # pt_labels_1 = Variable(pt_labels_1, requires_grad=False)
-        # pt_preds_1 = Variable(pt_preds_1, requires_grad=False)
-        # loss_1 = criterion_1(pt_preds_1, pt_labels_1)
-        # val_loss_1 += loss_1.data[0]
-        #
-        # pt_labels_1 = pt_labels_1.data
-        # pt_preds_1 = pt_preds_1.data
-        #
-        # sig_out = sig_f(pt_preds_1)
-        # preds_cor = torch.ByteTensor(sig_out > 0.5)
-        # preds_cor = preds_cor.long()
-        # pt_labels_1 = pt_labels_1.long()
-        # val_corrects_1 = torch.sum(preds_cor == pt_labels_1)
-
         val_elapsed_time = time.time() - val_start_time
         val_accuracy_1 = val_corrects_1 / (num_val_all * 7)
         val_accuracy_2 = val_corrects_2 / num_val_we_use
@@ -613,23 +557,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                         correspond_train_acc_1 = train_accuracy_1
                         best_model_wts = copy.deepcopy(model.state_dict())
 
-        all_train_loss_1.append(train_average_loss_1)
-        all_train_loss_2.append(train_average_loss_2)
-        all_train_accuracy_1.append(train_accuracy_1)
-        all_train_accuracy_2.append(train_accuracy_2)
-        all_val_loss_1.append(val_average_loss_1)
-        all_val_loss_2.append(val_average_loss_2)
-        all_val_accuracy_1.append(val_accuracy_1)
-        all_val_accuracy_2.append(val_accuracy_2)
-
-    all_info.append(all_train_accuracy_1)
-    all_info.append(all_train_accuracy_2)
-    all_info.append(all_train_loss_1)
-    all_info.append(all_train_loss_2)
-    all_info.append(all_val_accuracy_1)
-    all_info.append(all_val_accuracy_2)
-    all_info.append(all_val_loss_1)
-    all_info.append(all_val_loss_2)
+        record_np[0] = train_accuracy_1
+        record_np[1] = train_accuracy_2
+        record_np[2] = train_average_loss_1
+        record_np[3] = train_average_loss_2
+        record_np[4] = val_accuracy_1
+        record_np[5] = val_accuracy_2
+        record_np[6] = val_average_loss_1
+        record_np[7] = val_average_loss_2
 
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
@@ -665,13 +600,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_train2_" + str(save_train_2) \
                   + "_val1_" + str(save_val_1) \
                   + "_val2_" + str(save_val_2) \
-                  + ".pkl"
-
-    # print(model_name)
-    # print(record_name)
-    with open(record_name, 'wb') as f:
-        pickle.dump(all_info, f)
-    print()
+                  + ".npy"
+    np.save(record_name, record_np)
 
 
 def main():

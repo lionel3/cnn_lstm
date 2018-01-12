@@ -366,11 +366,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     best_val_accuracy = 0.0
     correspond_train_acc = 0.0
 
-    all_info = []
-    all_train_accuracy = []
-    all_train_loss = []
-    all_val_accuracy = []
-    all_val_loss = []
+    record_np = np.zeros([epochs, 4])
 
     for epoch in range(epochs):
         # np.random.seed(epoch)
@@ -484,10 +480,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             if train_accuracy > correspond_train_acc:
                 correspond_train_acc = train_accuracy
                 best_model_wts = copy.deepcopy(model.state_dict())
-        all_train_loss.append(train_average_loss)
-        all_train_accuracy.append(train_accuracy)
-        all_val_loss.append(val_average_loss)
-        all_val_accuracy.append(val_accuracy)
+
+        record_np[epoch, 0] = train_accuracy
+        record_np[epoch, 1] = train_average_loss
+        record_np[epoch, 2] = val_accuracy
+        record_np[epoch, 3] = val_average_loss
 
     print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
 
@@ -507,11 +504,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     torch.save(best_model_wts, model_name)
 
-    all_info.append(all_train_accuracy)
-    all_info.append(all_train_loss)
-    all_info.append(all_val_accuracy)
-    all_info.append(all_val_loss)
-
     record_name = "lstm" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
@@ -522,11 +514,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_batch_" + str(train_batch_size) \
                   + "_train_" + str(save_train) \
                   + "_val_" + str(save_val) \
-                  + ".pkl"
-
-    with open(record_name, 'wb') as f:
-        pickle.dump(all_info, f)
-    print()
+                  + ".npy"
+    np.save(record_name, record_np)
 
 
 def main():

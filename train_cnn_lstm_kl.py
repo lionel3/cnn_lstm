@@ -438,7 +438,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     correspond_train_acc_2 = 0.0
 
     # 要存储2个train的准确率 2个valid的准确率 4个train 4个loss的loss, 一共12个数据要记录
-    record_np = np.zeros(epochs, 12)
+    record_np = np.zeros([epochs, 12])
 
     for epoch in range(epochs):
         # np.random.seed(epoch)
@@ -560,6 +560,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 outputs_2 = outputs_2.view(10, -1, 7)
                 outputs_2 = torch.mean(outputs_2, 0)
 
+            soft_output_1 = softmax(outputs_1)
+            soft_output_2 = softmax(outputs_2)
+            kl_output_1 = softmax(kl_fc_t2p(outputs_1))
+            kl_output_2 = softmax(kl_fc_p2t(outputs_2))
+
             outputs_2 = outputs_2[sequence_length - 1::sequence_length]
             _, preds_2 = torch.max(outputs_2.data, 1)
 
@@ -577,10 +582,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
             softmax = nn.Softmax().cuda()
-            soft_output_1 = softmax(outputs_1)
-            soft_output_2 = softmax(outputs_2)
-            kl_output_1 = softmax(kl_fc_t2p(outputs_1))
-            kl_output_2 = softmax(kl_fc_p2t(outputs_2))
             soft_output_1 = Variable(soft_output_1.data, requires_grad=False)
             soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
             loss_3 = torch.abs(criterion_3(kl_output_1, soft_output_2))
@@ -593,8 +594,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_accuracy_2 = val_corrects_2 / num_val_we_use
         val_average_loss_1 = val_loss_1 / (num_val_all * 7)
         val_average_loss_2 = val_loss_2 / num_val_we_use
-        val_average_loss_3 = val_loss_3 / num_val_we_use
-        val_average_loss_4 = val_loss_4 / num_val_we_use
+        val_average_loss_3 = val_loss_3 / num_val_all
+        val_average_loss_4 = val_loss_4 / num_val_all
 
         print('epoch: {:3d}'
               ' train time: {:2.0f}m{:2.0f}s'
