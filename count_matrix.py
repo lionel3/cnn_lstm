@@ -48,17 +48,31 @@ def main():
     all_phase_tool = np.add(train_phase_tool, test_phase_tool)
     all_tool = np.sum(all_phase_tool, axis=0)
     print(all_tool)
-    train_phase = [3758, 36886, 7329, 24119, 3716, 7219, 3277]
-    all_phase = [8574, 74826, 14080, 58433, 7618, 14331, 6635]
+    # train_phase = [3758, 36886, 7329, 24119, 3716, 7219, 3277]
+    all_phase = np.array([8574, 74826, 14080, 58433, 7618, 14332, 6635])
 
     # tool到phase的映射矩阵
-    all_tool_to_phase = (all_phase_tool / all_tool).transpose()
+    print(all_tool.shape)
+    print(all_phase.shape)
+    all_tool_to_phase = (all_phase_tool / all_tool[None, :])
     print(all_phase_tool[0, 0])
+    print(all_phase_tool[0, 1])
+    print(all_phase_tool[1, 0])
     print(all_tool_to_phase[0, 0])
+    print(all_tool_to_phase[0, 1])
+    print(all_tool_to_phase[1, 0])
+    all_tool_to_phase = all_tool_to_phase.transpose()
+
+    print(all_tool_to_phase[0, 1])
+    print(all_tool_to_phase[1, 0])
 
     # phase到tool的映射矩阵
-    all_phase_to_tool = all_phase_tool / all_phase
-    print(all_phase_to_tool[0, 0])
+    all_phase_to_tool = all_phase_tool / all_phase[:, None]
+    print(all_phase_tool[0, 1])
+    print(all_phase_to_tool[0, 1])
+    print(all_phase_tool[1, 0])
+    print(all_phase_to_tool[1, 0])
+
 
     print(all_tool_to_phase)
     print(all_phase_to_tool)
