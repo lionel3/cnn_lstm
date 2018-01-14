@@ -433,23 +433,21 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             outputs_1, outputs_2 = model.forward(inputs)
 
-            _, preds_2 = torch.max(outputs_2.data, 1)
+            sig_output_1 = sigmoid_cuda(outputs_1)
+            soft_output_2 = softmax_cuda(outputs_2)
+            sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
+            soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
+            kl_output_1 = kl_fc_t2p(sig_output_1)
 
-            sig_out = outputs_1.data
-            sig_out = sigmoid_cuda(sig_out)
-            preds_1 = torch.cuda.ByteTensor(sig_out > 0.5)
+            preds_1 = torch.cuda.ByteTensor(sig_output_1.data > 0.5)
             preds_1 = preds_1.long()
             train_corrects_1 += torch.sum(preds_1 == labels_1.data)
             labels_1 = Variable(labels_1.data.float())
             loss_1 = criterion_1(outputs_1, labels_1)
             loss_2 = criterion_2(outputs_2, labels_2)
 
-            sig_output_1 = sigmoid_cuda(outputs_1)
-            soft_output_2 = softmax_cuda(outputs_2)
-            sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
-            soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
-
-            kl_output_1 = kl_fc_t2p(sig_output_1)
+            _, preds_2 = torch.max(outputs_2.data, 1)
+            train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
             loss_3 = torch.abs(criterion_3(kl_output_1, soft_output_2))
             loss = loss_1 + loss_2 + loss_3
@@ -459,7 +457,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_loss_1 += loss_1.data[0]
             train_loss_2 += loss_2.data[0]
             train_loss_3 += loss_3.data[0]
-            train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
         train_elapsed_time = time.time() - train_start_time
         train_accuracy_1 = train_corrects_1 / num_train_all / 7
@@ -474,7 +471,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_loss_1 = 0.0
         val_loss_2 = 0.0
         val_loss_3 = 0.0
-        val_loss_4 = 0.0
         val_corrects_1 = 0
         val_corrects_2 = 0
 
@@ -520,19 +516,18 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             outputs_2 = outputs_2[sequence_length - 1::sequence_length]
             _, preds_2 = torch.max(outputs_2.data, 1)
 
-            sig_out = outputs_1.data
-            sig_out = sigmoid_cuda(sig_out)
-            preds_1 = torch.cuda.ByteTensor(sig_out > 0.5)
+            preds_1 = torch.cuda.ByteTensor(sig_output_1.data > 0.5)
             preds_1 = preds_1.long()
             val_corrects_1 += torch.sum(preds_1 == labels_1.data)
             labels_1 = Variable(labels_1.data.float())
             loss_1 = criterion_1(outputs_1, labels_1)
-            val_loss_1 += loss_1.data[0]
             loss_2 = criterion_2(outputs_2, labels_2)
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
-            val_loss_2 += loss_2.data[0]
 
             loss_3 = torch.abs(criterion_3(kl_output_1, soft_output_2))
+
+            val_loss_1 += loss_1.data[0]
+            val_loss_2 += loss_2.data[0]
             val_loss_3 += loss_3.data[0]
 
         val_elapsed_time = time.time() - val_start_time
@@ -541,7 +536,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_average_loss_1 = val_loss_1 / (num_val_all * 7)
         val_average_loss_2 = val_loss_2 / num_val_we_use
         val_average_loss_3 = val_loss_3 / num_val_all
-        val_average_loss_4 = val_loss_4 / num_val_all
 
         print('epoch: {:3d}'
               ' train time: {:2.0f}m{:2.0f}s'

@@ -18,7 +18,7 @@ import copy
 import random
 import numbers
 
-parser = argparse.ArgumentParser(description='cnn_lstm_loss training')
+parser = argparse.ArgumentParser(description='cnn_lstm_kl training')
 parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
@@ -332,34 +332,28 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     model = DataParallel(model)
     model.load_state_dict(torch.load(
         'cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
-    kl_fc_p2t = nn.Linear(7, 7)
 
     kl_fc_t2p = nn.Linear(7, 7)
 
-    all_phase_to_tool = np.load('kl_fc_p2t.npy')
     all_tool_to_phase = np.load('kl_fc_t2p.npy')
 
-    kl_fc_p2t.weight.data = torch.from_numpy(all_phase_to_tool.astype('float32'))
     kl_fc_t2p.weight.data = torch.from_numpy(all_tool_to_phase.astype('float32'))
 
-    for param in kl_fc_p2t.parameters():
-        param.requires_grad = True
     for param in kl_fc_t2p.parameters():
         param.requires_grad = True
 
     if use_gpu:
         model = model.cuda()
-        kl_fc_p2t = kl_fc_p2t.cuda()
         kl_fc_t2p = kl_fc_t2p.cuda()
 
     criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
-    criterion_2 = nn.CrossEntropyLoss(size_average=False)
+    criterion_2 = nn.NLLLoss(size_average=False)
     softmax_cuda = nn.Softmax().cuda()
     sigmoid_cuda = nn.Sigmoid().cuda()
 
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD([model.parameters(), kl_fc_p2t.parameters(), kl_fc_t2p.parameters()],
+            optimizer = optim.SGD([model.parameters(), kl_fc_t2p.parameters()],
                                   lr=learning_rate, momentum=momentum, dampening=dampening,
                                   weight_decay=weight_decay, nesterov=use_nesterov)
             if sgd_adjust_lr == 0:
@@ -367,13 +361,12 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             elif sgd_adjust_lr == 1:
                 exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam([model.parameters(), kl_fc_p2t.parameters(), kl_fc_t2p.parameters()],
+            optimizer = optim.Adam([model.parameters(), kl_fc_t2p.parameters()],
                                    lr=learning_rate)
     elif multi_optim == 1:
         if optimizer_choice == 0:
             optimizer = optim.SGD([
                 {'params': model.module.share.parameters()},
-                {'params': kl_fc_p2t.parameters()},
                 {'params': kl_fc_t2p.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc.parameters(), 'lr': learning_rate},
@@ -386,7 +379,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         elif optimizer_choice == 1:
             optimizer = optim.Adam([
                 {'params': model.module.share.parameters()},
-                {'params': kl_fc_p2t.parameters()},
                 {'params': kl_fc_t2p.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc.parameters(), 'lr': learning_rate},
@@ -398,7 +390,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     correspond_train_acc_1 = 0.0
     correspond_train_acc_2 = 0.0
 
-    # 要存储2个train的准确率 2个valid的准确率 4个train 4个loss的loss, 一共12个数据要记录
+    # 要存储2个train的准确率 2个valid的准确率 3个train 3个loss的loss, 一共12个数据要记录
     record_np = np.zeros([epochs, 8])
 
     for epoch in range(epochs):
@@ -443,22 +435,20 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             soft_output_2 = softmax_cuda(outputs_2)
             sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
             soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
-            kl_output_1 = (kl_fc_t2p(sig_output_1))
-            kl_output_2 = (kl_fc_p2t(soft_output_2))
-            ave_outputs_1 = (sig_output_1 + kl_output_2) / 2
-            ave_outputs_2 = torch.log((soft_output_2 + kl_output_1) / 2)
+            kl_output_1 = kl_fc_t2p(sig_output_1)
 
-            preds_1 = torch.cuda.ByteTensor(ave_outputs_1.data > 0.5)
+            preds_1 = torch.cuda.ByteTensor(sig_output_1.data > 0.5)
             preds_1 = preds_1.long()
             train_corrects_1 += torch.sum(preds_1 == labels_1.data)
             labels_1 = Variable(labels_1.data.float())
 
-            _, preds_2 = torch.max(ave_outputs_2.data, 1)
+            log_outputs_2 = torch.log((soft_output_2 + kl_output_1) / 2)
+
+            _, preds_2 = torch.max(log_outputs_2.data, 1)
             train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
-            loss_1 = criterion_1(ave_outputs_1, labels_1)
-            loss_2 = criterion_2(ave_outputs_2, labels_2)
-
+            loss_1 = criterion_1(outputs_1, labels_1)
+            loss_2 = criterion_2(log_outputs_2, labels_2)
             loss = loss_1 + loss_2
             loss.backward()
             optimizer.step()
@@ -516,23 +506,23 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             soft_output_2 = softmax_cuda(outputs_2)
             sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
             soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
+
             kl_output_1 = (kl_fc_t2p(sig_output_1))
-            kl_output_2 = (kl_fc_p2t(soft_output_2))
 
-            ave_outputs_1 = (sig_output_1 + kl_output_2) / 2
-            ave_outputs_2 = torch.log((soft_output_2 + kl_output_1) / 2)
-
-            preds_1 = torch.cuda.ByteTensor(ave_outputs_1.data > 0.5)
+            preds_1 = torch.cuda.ByteTensor(sig_output_1 > 0.5)
             preds_1 = preds_1.long()
             val_corrects_1 += torch.sum(preds_1 == labels_1.data)
             labels_1 = Variable(labels_1.data.float())
 
-            ave_outputs_2 = ave_outputs_2[sequence_length - 1::sequence_length]
-            _, preds_2 = torch.max(ave_outputs_2.data, 1)
+            log_outputs_2 = torch.log((soft_output_2 + kl_output_1) / 2)
+
+            log_outputs_2 = log_outputs_2[sequence_length - 1::sequence_length]
+            _, preds_2 = torch.max(log_outputs_2.data, 1)
             val_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
-            loss_1 = criterion_1(ave_outputs_1, labels_1)
-            loss_2 = criterion_2(ave_outputs_2, labels_2)
+            loss_1 = criterion_1(outputs_1, labels_1)
+            loss_2 = criterion_2(outputs_2, labels_2)
+
             val_loss_1 += loss_1.data[0]
             val_loss_2 += loss_2.data[0]
 
@@ -554,7 +544,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       train_accuracy_1,
                       train_accuracy_2,
                       train_average_loss_1,
-                      train_average_loss_2))
+                      train_average_loss_2
+                      ))
         print('epoch: {:3d}'
               ' valid time: {:2.0f}m{:2.0f}s'
               ' valid accu_1: {:.4f}'
@@ -567,7 +558,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       val_accuracy_1,
                       val_accuracy_2,
                       val_average_loss_1,
-                      val_average_loss_2))
+                      val_average_loss_2
+                      ))
 
         if optimizer_choice == 0:
             if sgd_adjust_lr == 0:
@@ -613,7 +605,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    public_name = "cnn_lstm_loss" \
+    public_name = "cnn_lstm_klt2pave" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
@@ -631,10 +623,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     record_name = public_name + ".npy"
     np.save(record_name, record_np)
 
-    kl_fc_p2t_name = public_name + "p2t.npy"
     kl_fc_t2p_name = public_name + "t2p.npy"
-    kl_fc_p2t_np = kl_fc_p2t.cpu().weight.data.numpy()
-    np.save(kl_fc_p2t_name, kl_fc_p2t_np)
     kl_fc_t2p_np = kl_fc_t2p.cpu().weight.data.numpy()
     np.save(kl_fc_t2p_name, kl_fc_t2p_np)
 

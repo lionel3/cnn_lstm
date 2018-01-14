@@ -18,7 +18,7 @@ import copy
 import random
 import numbers
 
-parser = argparse.ArgumentParser(description='cnn_lstm_kl training')
+parser = argparse.ArgumentParser(description='cnn_lstm_klave training')
 parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
