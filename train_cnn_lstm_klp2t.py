@@ -666,8 +666,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     kl_fc_t2p_np = kl_fc_t2p.cpu().weight.data.numpy()
     np.save(kl_fc_t2p_name, kl_fc_t2p_np)
 
-    print()
-
 
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')

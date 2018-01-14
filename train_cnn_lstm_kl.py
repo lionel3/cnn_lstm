@@ -525,8 +525,8 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             sig_output_1 = sigmoid_cuda(outputs_1)
             soft_output_2 = softmax_cuda(outputs_2)
-            kl_output_1 = (kl_fc_t2p(outputs_1))
-            kl_output_2 = (kl_fc_p2t(outputs_2))
+            kl_output_1 = (kl_fc_t2p(sig_output_1))
+            kl_output_2 = (kl_fc_p2t(soft_output_2))
             sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
             soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
 
@@ -670,8 +670,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     np.save(kl_fc_p2t_name, kl_fc_p2t_np)
     kl_fc_t2p_np = kl_fc_t2p.cpu().weight.data.numpy()
     np.save(kl_fc_t2p_name, kl_fc_t2p_np)
-
-    print()
 
 
 def main():
