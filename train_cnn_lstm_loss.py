@@ -617,23 +617,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    model_name = "cnn_lstm_loss" \
-                 + "_epoch_" + str(epochs) \
-                 + "_length_" + str(sequence_length) \
-                 + "_opt_" + str(optimizer_choice) \
-                 + "_mulopt_" + str(multi_optim) \
-                 + "_flip_" + str(use_flip) \
-                 + "_crop_" + str(crop_type) \
-                 + "_batch_" + str(train_batch_size) \
-                 + "_train1_" + str(save_train_1) \
-                 + "_train2_" + str(save_train_2) \
-                 + "_val1_" + str(save_val_1) \
-                 + "_val2_" + str(save_val_2) \
-                 + ".pth"
-
-    torch.save(best_model_wts, model_name)
-
-    record_name = "cnn_lstm_loss" \
+    public_name = "cnn_lstm_loss" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
@@ -644,37 +628,15 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_train1_" + str(save_train_1) \
                   + "_train2_" + str(save_train_2) \
                   + "_val1_" + str(save_val_1) \
-                  + "_val2_" + str(save_val_2) \
-                  + ".npy"
+                  + "_val2_" + str(save_val_2)
+    model_name = public_name + ".pth"
+    torch.save(best_model_wts, model_name)
+
+    record_name = public_name + ".npy"
     np.save(record_name, record_np)
 
-    kl_fc_p2t_name = "cnn_lstm_loss" \
-                     + "_epoch_" + str(epochs) \
-                     + "_length_" + str(sequence_length) \
-                     + "_opt_" + str(optimizer_choice) \
-                     + "_mulopt_" + str(multi_optim) \
-                     + "_flip_" + str(use_flip) \
-                     + "_crop_" + str(crop_type) \
-                     + "_batch_" + str(train_batch_size) \
-                     + "_train1_" + str(save_train_1) \
-                     + "_train2_" + str(save_train_2) \
-                     + "_val1_" + str(save_val_1) \
-                     + "_val2_" + str(save_val_2) \
-                     + "p2t.npy"
-    kl_fc_t2p_name = "cnn_lstm_loss" \
-                     + "_epoch_" + str(epochs) \
-                     + "_length_" + str(sequence_length) \
-                     + "_opt_" + str(optimizer_choice) \
-                     + "_mulopt_" + str(multi_optim) \
-                     + "_flip_" + str(use_flip) \
-                     + "_crop_" + str(crop_type) \
-                     + "_batch_" + str(train_batch_size) \
-                     + "_train1_" + str(save_train_1) \
-                     + "_train2_" + str(save_train_2) \
-                     + "_val1_" + str(save_val_1) \
-                     + "_val2_" + str(save_val_2) \
-                     + "t2p.npy"
-
+    kl_fc_p2t_name = public_name + "p2t.npy"
+    kl_fc_t2p_name = public_name + "t2p.npy"
     kl_fc_p2t_np = kl_fc_p2t.cpu().weight.data.numpy()
     np.save(kl_fc_p2t_name, kl_fc_p2t_np)
     kl_fc_t2p_np = kl_fc_t2p.cpu().weight.data.numpy()

@@ -490,21 +490,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
     save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
-    model_name = "lstm" \
-                 + "_epoch_" + str(epochs) \
-                 + "_length_" + str(sequence_length) \
-                 + "_opt_" + str(optimizer_choice) \
-                 + "_mulopt_" + str(multi_optim) \
-                 + "_flip_" + str(use_flip) \
-                 + "_crop_" + str(crop_type) \
-                 + "_batch_" + str(train_batch_size) \
-                 + "_train_" + str(save_train) \
-                 + "_val_" + str(save_val) \
-                 + ".pth"
-
-    torch.save(best_model_wts, model_name)
-
-    record_name = "lstm" \
+    public_name = "lstm" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
@@ -513,8 +499,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_crop_" + str(crop_type) \
                   + "_batch_" + str(train_batch_size) \
                   + "_train_" + str(save_train) \
-                  + "_val_" + str(save_val) \
-                  + ".npy"
+                  + "_val_" + str(save_val)
+    model_name = public_name + ".pth"
+    torch.save(best_model_wts, model_name)
+
+    record_name = public_name + ".npy"
     np.save(record_name, record_np)
 
 
