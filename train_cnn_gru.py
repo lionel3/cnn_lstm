@@ -353,13 +353,13 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         for data in val_loader:
             inputs, labels_1, labels_2 = data
             if use_gpu:
-                inputs = Variable(inputs.cuda())
-                labels_1 = Variable(labels_1.cuda())
-                labels_2 = Variable(labels_2.cuda())
+                inputs = Variable(inputs.cuda(), volatile=True)
+                labels_1 = Variable(labels_1.cuda(), volatile=True)
+                labels_2 = Variable(labels_2.cuda(), volatile=True)
             else:
-                inputs = Variable(inputs)
-                labels_1 = Variable(labels_1)
-                labels_2 = Variable(labels_2)
+                inputs = Variable(inputs, volatile=True)
+                labels_1 = Variable(labels_1, volatile=True)
+                labels_2 = Variable(labels_2, volatile=True)
 
             outputs_1, outputs_2 = model.forward(inputs)
 

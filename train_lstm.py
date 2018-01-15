@@ -418,11 +418,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             inputs, labels_1, labels_2 = data
             labels_2 = labels_2[(sequence_length - 1)::sequence_length]
             if use_gpu:
-                inputs = Variable(inputs.cuda())
-                labels = Variable(labels_2.cuda())
+                inputs = Variable(inputs.cuda(), volatile=True)
+                labels = Variable(labels_2.cuda(), volatile=True)
             else:
-                inputs = Variable(inputs)
-                labels = Variable(labels_2)
+                inputs = Variable(inputs, volatile=True)
+                labels = Variable(labels_2, volatile=True)
 
             if crop_type == 0 or crop_type == 1:
                 outputs = model.forward(inputs)

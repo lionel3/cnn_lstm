@@ -101,6 +101,7 @@ class CholecDataset(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
+
 class multi_lstm(torch.nn.Module):
     def __init__(self):
         super(multi_lstm, self).__init__()
@@ -391,19 +392,18 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_corrects_1 = 0
         val_corrects_2 = 0
 
-
         val_start_time = time.time()
         for data in val_loader:
             inputs, labels_1, labels_2 = data
             labels_2 = labels_2[(sequence_length - 1):: sequence_length]
             if use_gpu:
-                inputs = Variable(inputs.cuda())
-                labels_1 = Variable(labels_1.cuda())
-                labels_2 = Variable(labels_2.cuda())
+                inputs = Variable(inputs.cuda(), volatile=True)
+                labels_1 = Variable(labels_1.cuda(), volatile=True)
+                labels_2 = Variable(labels_2.cuda(), volatile=True)
             else:
-                inputs = Variable(inputs)
-                labels_1 = Variable(labels_1)
-                labels_2 = Variable(labels_2)
+                inputs = Variable(inputs, volatile=True)
+                labels_1 = Variable(labels_1, volatile=True)
+                labels_2 = Variable(labels_2, volatile=True)
 
             if crop_type == 0 or crop_type == 1:
                 outputs_1, outputs_2 = model.forward(inputs)
@@ -586,7 +586,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                  + "_train1_" + str(save_train_1) \
                  + "_train2_" + str(save_train_2) \
                  + "_val1_" + str(save_val_1) \
-                 + "_val2_" + str(save_val_2)\
+                 + "_val2_" + str(save_val_2) \
                  + ".pth"
 
     torch.save(best_model_wts, model_name)
@@ -605,7 +605,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_val2_" + str(save_val_2) \
                   + ".pkl"
 
-
     # print(model_name)
     # print(record_name)
     with open(record_name, 'wb') as f:
@@ -614,7 +613,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
 
 def main():
-
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
 
