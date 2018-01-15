@@ -360,7 +360,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD([model.parameters(), kl_fc_p2t.parameters(), kl_fc_t2p.parameters()],
+            optimizer = optim.SGD([{'params': model.module.parameters()},
+                                   {'params': kl_fc_p2t.parameters()},
+                                   {'params': kl_fc_t2p.parameters()}],
                                   lr=learning_rate, momentum=momentum, dampening=dampening,
                                   weight_decay=weight_decay, nesterov=use_nesterov)
             if sgd_adjust_lr == 0:
@@ -368,7 +370,9 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             elif sgd_adjust_lr == 1:
                 exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam([model.parameters(), kl_fc_p2t.parameters(), kl_fc_t2p.parameters()],
+            optimizer = optim.Adam([[{'params': model.module.parameters()},
+                                     {'params': kl_fc_p2t.parameters()},
+                                     {'params': kl_fc_t2p.parameters()}]],
                                    lr=learning_rate)
     elif multi_optim == 1:
         if optimizer_choice == 0:
