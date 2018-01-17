@@ -500,6 +500,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         print('epoch: {:4d}'
               ' train time: {:2.0f}m{:2.0f}s'
               ' train loss_1: {:4.4f}'
+              ' train loss_1: {:4.4f}'
               ' train accu_1: {:.4f}'
               ' valid time: {:2.0f}m{:2.0f}s'
               ' valid loss_1: {:4.4f}'
@@ -557,14 +558,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                         correspond_train_acc_1 = train_accuracy_1
                         best_model_wts = copy.deepcopy(model.state_dict())
 
-        record_np[0] = train_accuracy_1
-        record_np[1] = train_accuracy_2
-        record_np[2] = train_average_loss_1
-        record_np[3] = train_average_loss_2
-        record_np[4] = val_accuracy_1
-        record_np[5] = val_accuracy_2
-        record_np[6] = val_average_loss_1
-        record_np[7] = val_average_loss_2
+        record_np[epoch, 0] = train_accuracy_1
+        record_np[epoch, 1] = train_accuracy_2
+        record_np[epoch, 2] = train_average_loss_1
+        record_np[epoch, 3] = train_average_loss_2
+        record_np[epoch, 4] = val_accuracy_1
+        record_np[epoch, 5] = val_accuracy_2
+        record_np[epoch, 6] = val_average_loss_1
+        record_np[epoch, 7] = val_average_loss_2
 
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
