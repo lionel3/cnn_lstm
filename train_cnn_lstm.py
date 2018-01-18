@@ -327,13 +327,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pin_memory=False
     )
     model = multi_lstm()
+    sig_f = nn.Sigmoid()
+
     if use_gpu:
         model = model.cuda()
-
+        sig_f = sig_f.cuda()
     model = DataParallel(model)
     criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
     criterion_2 = nn.CrossEntropyLoss(size_average=False)
-    sig_f = nn.Sigmoid()
 
     if multi_optim == 0:
         if optimizer_choice == 0:
@@ -412,8 +413,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             _, preds_2 = torch.max(outputs_2.data, 1)
 
-            sig_out = outputs_1.data.cpu()
-            sig_out = sig_f(sig_out)
+            sig_out = sig_f(outputs_1.data)
             preds_1 = torch.ByteTensor(sig_out > 0.5)
             preds_1 = preds_1.long()
             train_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())
@@ -478,8 +478,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             outputs_2 = outputs_2[sequence_length - 1::sequence_length]
             _, preds_2 = torch.max(outputs_2.data, 1)
 
-            sig_out = outputs_1.data.cpu()
-            sig_out = sig_f(sig_out)
+            sig_out = sig_f(outputs_1.data)
             preds_1 = torch.ByteTensor(sig_out > 0.5)
             preds_1 = preds_1.long()
             val_corrects_1 += torch.sum(preds_1 == labels_1.data.cpu())

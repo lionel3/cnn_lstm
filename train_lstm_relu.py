@@ -18,12 +18,13 @@ import copy
 import random
 import numbers
 
-parser = argparse.ArgumentParser(description='kl training')
+parser = argparse.ArgumentParser(description='lstm training')
 parser.add_argument('-g', '--gpu', default=[2], nargs='+', type=int, help='index of gpu to use, default 2')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')
 parser.add_argument('-t', '--train', default=100, type=int, help='train batch size, default 100')
 parser.add_argument('-v', '--val', default=8, type=int, help='valid batch size, default 8')
 parser.add_argument('-o', '--opt', default=1, type=int, help='0 for sgd 1 for adam, default 1')
+parser.add_argument('-m', '--multi', default=1, type=int, help='0 for single opt, 1 for multi opt, default 1')
 parser.add_argument('-e', '--epo', default=25, type=int, help='epochs to train and val, default 25')
 parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to use, default 2')
 parser.add_argument('-f', '--flip', default=0, type=int, help='0 for not flip, 1 for flip, default 0')
@@ -44,6 +45,7 @@ sequence_length = args.seq
 train_batch_size = args.train
 val_batch_size = args.val
 optimizer_choice = args.opt
+multi_optim = args.multi
 epochs = args.epo
 workers = args.work
 use_flip = args.flip
@@ -67,6 +69,7 @@ print('sequence length : {:6d}'.format(sequence_length))
 print('train batch size: {:6d}'.format(train_batch_size))
 print('valid batch size: {:6d}'.format(val_batch_size))
 print('optimizer choice: {:6d}'.format(optimizer_choice))
+print('multiple optim  : {:6d}'.format(multi_optim))
 print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
@@ -121,9 +124,11 @@ class RandomHorizontalFlip(object):
 
     def __call__(self, img):
         seed = self.count // sequence_length
-        self.count += 1
         random.seed(seed)
-        if random.random() < 0.5:
+        prob = random.random()
+        self.count += 1
+        # print(self.count, seed, prob)
+        if prob < 0.5:
             return img.transpose(Image.FLIP_LEFT_RIGHT)
         return img
 
@@ -135,7 +140,6 @@ class CholecDataset(Dataset):
         self.file_labels_1 = file_labels[:, range(7)]
         self.file_labels_2 = file_labels[:, -1]
         self.transform = transform
-        # self.target_transform=target_transform
         self.loader = loader
 
     def __getitem__(self, index):
@@ -152,9 +156,9 @@ class CholecDataset(Dataset):
         return len(self.file_paths)
 
 
-class multi_lstm(torch.nn.Module):
+class resnet_lstm_relu(torch.nn.Module):
     def __init__(self):
-        super(multi_lstm, self).__init__()
+        super(resnet_lstm_relu, self).__init__()
         resnet = models.resnet50(pretrained=True)
         self.share = torch.nn.Sequential()
         self.share.add_module("conv1", resnet.conv1)
@@ -168,22 +172,20 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("avgpool", resnet.avgpool)
         self.lstm = nn.LSTM(2048, 512, batch_first=True)
         self.fc = nn.Linear(512, 7)
-        self.fc2 = nn.Linear(2048, 7)
+        self.relu = nn.ReLU()
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
-        init.xavier_uniform(self.fc2.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
-        z = self.fc2(x)
         x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
-        return z, y
+        y = self.fc(self.relu(y))
+        return y
 
 
 def get_useful_start_idx(sequence_length, list_each_length):
@@ -279,12 +281,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
-    # num_train_we_use = 600
-    # num_val_we_use = 400
+    # num_train_we_use = 8000
+    # num_val_we_use = 800
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
 
+    #    np.random.seed(0)
+    # np.random.shuffle(train_we_use_start_idx)
     train_idx = []
     for i in range(num_train_we_use):
         for j in range(sequence_length):
@@ -297,15 +301,14 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     num_train_all = len(train_idx)
     num_val_all = len(val_idx)
-
+    print('num of train dataset: {:6d}'.format(num_train))
     print('num train start idx : {:6d}'.format(len(train_useful_start_idx)))
     print('last idx train start: {:6d}'.format(train_useful_start_idx[-1]))
-    print('num of train dataset: {:6d}'.format(num_train))
     print('num of train we use : {:6d}'.format(num_train_we_use))
     print('num of all train use: {:6d}'.format(num_train_all))
+    print('num of valid dataset: {:6d}'.format(num_val))
     print('num valid start idx : {:6d}'.format(len(val_useful_start_idx)))
     print('last idx valid start: {:6d}'.format(val_useful_start_idx[-1]))
-    print('num of valid dataset: {:6d}'.format(num_val))
     print('num of valid we use : {:6d}'.format(num_val_we_use))
     print('num of all valid use: {:6d}'.format(num_val_all))
 
@@ -323,71 +326,50 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         num_workers=workers,
         pin_memory=False
     )
-
-    model = multi_lstm()
-    model = DataParallel(model)
-    model.load_state_dict(torch.load(
-        'cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
-
-    # kl_fc_p2t = nn.Linear(7, 7)
-    # kl_fc_t2p = nn.Linear(7, 7)
-
-    kl_fc_p2t = nn.Sequential(
-        nn.Linear(7, 128),
-        nn.ReLU(),
-        nn.Linear(128, 7)
-    )
-    kl_fc_t2p = nn.Sequential(
-        nn.Linear(7, 128),
-        nn.ReLU(),
-        nn.Linear(128, 7)
-    )
-
-    # fix 前面网络层，学习两个矩阵
-    for param in model.module.parameters():
-        param.requires_grad = False
-    for param in kl_fc_p2t.parameters():
-        param.requires_grad = True
-    for param in kl_fc_t2p.parameters():
-        param.requires_grad = True
-
+    model = resnet_lstm_relu()
     if use_gpu:
         model = model.cuda()
-        kl_fc_p2t = kl_fc_p2t.cuda()
-        kl_fc_t2p = kl_fc_t2p.cuda()
 
-    criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
-    criterion_2 = nn.CrossEntropyLoss(size_average=False)
-    sigmoid = nn.Sigmoid()
-    softmax = nn.Softmax()
-    if use_gpu:
-        sigmoid = sigmoid.cuda()
-        softmax = softmax.cuda()
-    if optimizer_choice == 0:
-        optimizer = optim.SGD([{'params': kl_fc_p2t.parameters()},
-                               {'params': kl_fc_t2p.parameters()}], lr=learning_rate, momentum=momentum,
-                              dampening=dampening,
-                              weight_decay=weight_decay, nesterov=use_nesterov)
-        if sgd_adjust_lr == 0:
-            exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
-        elif sgd_adjust_lr == 1:
-            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-    elif optimizer_choice == 1:
-        optimizer = optim.Adam([{'params': kl_fc_p2t.parameters()},
-                                {'params': kl_fc_t2p.parameters()}], lr=learning_rate)
+    model = DataParallel(model)
+    criterion = nn.CrossEntropyLoss(size_average=False)
 
-    best_val_accuracy_1 = 0.0
-    best_val_accuracy_2 = 0.0
-    correspond_train_acc_1 = 0.0
-    correspond_train_acc_2 = 0.0
+    if multi_optim == 0:
+        if optimizer_choice == 0:
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, dampening=dampening,
+                                  weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        elif optimizer_choice == 1:
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    elif multi_optim == 1:
+        if optimizer_choice == 0:
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
+                weight_decay=weight_decay, nesterov=use_nesterov)
+            if sgd_adjust_lr == 0:
+                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_adjust_lr, gamma=sgd_gamma)
+            elif sgd_adjust_lr == 1:
+                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+        elif optimizer_choice == 1:
+            optimizer = optim.Adam([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc.parameters(), 'lr': learning_rate},
+            ], lr=learning_rate / 10)
 
-    kl_fc_t2p_wts = copy.deepcopy(kl_fc_t2p.state_dict())
-    kl_fc_p2t_wts = copy.deepcopy(kl_fc_p2t.state_dict())
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_val_accuracy = 0.0
+    correspond_train_acc = 0.0
 
-    record_np = np.zeros([epochs, 8])
-    loss_np = np.empty([0, 2])
+    record_np = np.zeros([epochs, 4])
 
     for epoch in range(epochs):
+        # np.random.seed(epoch)
         np.random.shuffle(train_we_use_start_idx)
         train_idx = []
         for i in range(num_train_we_use):
@@ -401,242 +383,128 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             num_workers=workers,
             pin_memory=False
         )
-        # train
-        train_loss_1 = 0.0
-        train_loss_2 = 0.0
-        train_corrects_1 = 0
-        train_corrects_2 = 0
 
+        model.train()
+        train_loss = 0.0
+        train_corrects = 0
         train_start_time = time.time()
         for data in train_loader:
             inputs, labels_1, labels_2 = data
             if use_gpu:
                 inputs = Variable(inputs.cuda())
-                labels_1 = Variable(labels_1.cuda())
-                labels_2 = Variable(labels_2.cuda())
+                labels = Variable(labels_2.cuda())
             else:
                 inputs = Variable(inputs)
-                labels_1 = Variable(labels_1)
-                labels_2 = Variable(labels_2)
-
+                labels = Variable(labels_2)
             optimizer.zero_grad()
+            outputs = model.forward(inputs)
+            _, preds = torch.max(outputs.data, 1)
 
-            # outputs_1, outputs_2 = model.forward(inputs)
-            # outputs_1 = sigmoid(outputs_1)
-            # outputs_2 = softmax(outputs_2)
-            outputs_2 = torch.zeros(labels_1.size())
-            for i in range(len(data[0])):
-                outputs_2[i, labels_2.data[i]] = 1
-            if use_gpu:
-                outputs_2 = Variable(outputs_2.cuda())
-            else:
-                outputs_2 = Variable(outputs_2)
-            # print(outputs_2.size())
-            # print(type(outputs_2))
-            kl_outputs_1 = kl_fc_t2p(labels_1.float())
-            kl_outputs_2 = kl_fc_p2t(outputs_2)
-
-            # outputs_1 = (kl_outputs_2 + outputs_1) / 2
-            # outputs_2 = (kl_outputs_1 + outputs_2) / 2
-
-            _, preds_2 = torch.max(kl_outputs_1.data, 1)
-
-            # 统计tool正确个数
-            sig_out = sigmoid(kl_outputs_2).data
-            if use_gpu:
-                preds_1 = torch.cuda.ByteTensor(sig_out > 0.5)
-            else:
-                preds_1 = torch.ByteTensor(sig_out > 0.5)
-            preds_1 = preds_1.long()
-            train_corrects_1 += torch.sum(preds_1 == labels_1.data)
-
-            labels_1 = Variable(labels_1.data.float())
-            loss_1 = criterion_1(kl_outputs_2, labels_1)
-            loss_2 = criterion_2(kl_outputs_1, labels_2)
-
-            loss = loss_1 + loss_2
-            loss_np = np.append(loss_np, np.array([[loss_1.data[0] / len(data[0]), loss_2.data[0] / len(data[0])]]),
-                                axis=0)
+            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            train_loss_1 += loss_1.data[0]
-            train_loss_2 += loss_2.data[0]
-            train_corrects_2 += torch.sum(preds_2 == labels_2.data)
-
+            train_loss += loss.data[0]
+            train_corrects += torch.sum(preds == labels.data)
         train_elapsed_time = time.time() - train_start_time
-        train_accuracy_1 = train_corrects_1 / num_train_all / 7
-        train_accuracy_2 = train_corrects_2 / num_train_all
-        train_average_loss_1 = train_loss_1 / num_train_all / 7
-        train_average_loss_2 = train_loss_2 / num_train_all
+        train_accuracy = train_corrects / num_train_all
+        train_average_loss = train_loss / num_train_all
 
         # begin eval
-        val_loss_1 = 0.0
-        val_loss_2 = 0.0
-        val_corrects_1 = 0
-        val_corrects_2 = 0
-
+        model.eval()
+        val_loss = 0.0
+        val_corrects = 0
         val_start_time = time.time()
         for data in val_loader:
             inputs, labels_1, labels_2 = data
-            # labels_2 = labels_2[(sequence_length - 1):: sequence_length]
+            labels_2 = labels_2[(sequence_length - 1)::sequence_length]
             if use_gpu:
                 inputs = Variable(inputs.cuda(), volatile=True)
-                labels_1 = Variable(labels_1.cuda(), volatile=True)
-                labels_2 = Variable(labels_2.cuda(), volatile=True)
+                labels = Variable(labels_2.cuda(), volatile=True)
             else:
                 inputs = Variable(inputs, volatile=True)
-                labels_1 = Variable(labels_1, volatile=True)
-                labels_2 = Variable(labels_2, volatile=True)
+                labels = Variable(labels_2, volatile=True)
 
-            # if crop_type == 0 or crop_type == 1:
-            #     outputs_1, outputs_2 = model.forward(inputs)
-            # elif crop_type == 5:
-            #     inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-            #     inputs = inputs.view(-1, 3, 224, 224)
-            #     outputs_1, outputs_2 = model.forward(inputs)
-            #     outputs_1 = outputs_1.view(5, -1, 7)
-            #     outputs_1 = torch.mean(outputs_1, 0)
-            #     outputs_2 = outputs_2.view(5, -1, 7)
-            #     outputs_2 = torch.mean(outputs_2, 0)
-            # elif crop_type == 10:
-            #     inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-            #     inputs = inputs.view(-1, 3, 224, 224)
-            #     outputs_1, outputs_2 = model.forward(inputs)
-            #     outputs_1 = outputs_1.view(10, -1, 7)
-            #     outputs_1 = torch.mean(outputs_1, 0)
-            #     outputs_2 = outputs_2.view(10, -1, 7)
-            #     outputs_2 = torch.mean(outputs_2, 0)
-            #
-            # outputs_1 = sigmoid(outputs_1)
-            # outputs_2 = softmax(outputs_2)
-            outputs_2 = torch.zeros(labels_1.size())
-            for i in range(len(data[0])):
-                outputs_2[i, labels_2.data[i]] = 1
-            if use_gpu:
-                outputs_2 = Variable(outputs_2.cuda())
-            else:
-                outputs_2 = Variable(outputs_2)
+            if crop_type == 0 or crop_type == 1:
+                outputs = model.forward(inputs)
+            elif crop_type == 5:
+                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+                inputs = inputs.view(-1, 3, 224, 224)
+                outputs = model.forward(inputs)
+                outputs = outputs.view(5, -1, 7)
+                outputs = torch.mean(outputs, 0)
+            elif crop_type == 10:
+                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
+                inputs = inputs.view(-1, 3, 224, 224)
+                outputs = model.forward(inputs)
+                outputs = outputs.view(10, -1, 7)
+                outputs = torch.mean(outputs, 0)
 
-            kl_outputs_1 = kl_fc_t2p(labels_1.float())
-            kl_outputs_2 = kl_fc_p2t(outputs_2)
+            outputs = outputs[sequence_length - 1::sequence_length]
 
-            # outputs_1 = (kl_outputs_2 + outputs_1) / 2
-            # outputs_2 = (kl_outputs_1 + outputs_2) / 2
+            _, preds = torch.max(outputs.data, 1)
 
-            # kl_outputs_1 = kl_outputs_1[sequence_length - 1::sequence_length]
-            _, preds_2 = torch.max(kl_outputs_1.data, 1)
-
-            sig_out = sigmoid(kl_outputs_2).data
-            if use_gpu:
-                preds_1 = torch.cuda.ByteTensor(sig_out > 0.5)
-            else:
-                preds_1 = torch.ByteTensor(sig_out > 0.5)
-            preds_1 = preds_1.long()
-            val_corrects_1 += torch.sum(preds_1 == labels_1.data)
-
-            labels_1 = Variable(labels_1.data.float())
-            loss_1 = criterion_1(kl_outputs_2, labels_1)
-            loss_2 = criterion_2(kl_outputs_1, labels_2)
-
-            val_loss_1 += loss_1.data[0]
-            val_loss_2 += loss_2.data[0]
-            val_corrects_2 += torch.sum(preds_2 == labels_2.data)
-
+            loss = criterion(outputs, labels)
+            val_loss += loss.data[0]
+            val_corrects += torch.sum(preds == labels.data)
         val_elapsed_time = time.time() - val_start_time
-        val_accuracy_1 = val_corrects_1 / num_val_all / 7
-        val_accuracy_2 = val_corrects_2 / num_val_all
-        val_average_loss_1 = val_loss_1 / num_val_all / 7
-        val_average_loss_2 = val_loss_2 / num_val_all
-
+        val_accuracy = val_corrects / num_val_we_use
+        val_average_loss = val_loss / num_val_we_use
         print('epoch: {:4d}'
-              ' train time: {:2.0f}m{:2.0f}s'
-              ' train accu_1: {:.4f}'
-              ' train accu_2: {:.4f}'
-              ' train loss_1: {:4.4f}'
-              ' train loss_2: {:4.4f}'
+              ' train in: {:2.0f}m{:2.0f}s'
+              ' train loss: {:4.4f}'
+              ' train accu: {:.4f}'
+              ' valid in: {:2.0f}m{:2.0f}s'
+              ' valid loss: {:4.4f}'
+              ' valid accu: {:.4f}'
               .format(epoch,
                       train_elapsed_time // 60,
                       train_elapsed_time % 60,
-                      train_accuracy_1,
-                      train_accuracy_2,
-                      train_average_loss_1,
-                      train_average_loss_2))
-        print('epoch: {:4d}'
-              ' valid time: {:2.0f}m{:2.0f}s'
-              ' valid accu_1: {:.4f}'
-              ' valid accu_2: {:.4f}'
-              ' valid loss_1: {:4.4f}'
-              ' valid loss_2: {:4.4f}'
-              .format(epoch,
+                      train_average_loss,
+                      train_accuracy,
                       val_elapsed_time // 60,
                       val_elapsed_time % 60,
-                      val_accuracy_1,
-                      val_accuracy_2,
-                      val_average_loss_1,
-                      val_average_loss_2))
+                      val_average_loss,
+                      val_accuracy))
 
         if optimizer_choice == 0:
             if sgd_adjust_lr == 0:
                 exp_lr_scheduler.step()
             elif sgd_adjust_lr == 1:
-                exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
+                exp_lr_scheduler.step(val_average_loss)
 
-        if val_accuracy_2 > best_val_accuracy_2:
-            best_val_accuracy_2 = val_accuracy_2
-            best_val_accuracy_1 = val_accuracy_1
-            correspond_train_acc_1 = train_accuracy_1
-            correspond_train_acc_2 = train_accuracy_2
-            kl_fc_t2p_wts = copy.deepcopy(kl_fc_t2p.state_dict())
-            kl_fc_p2t_wts = copy.deepcopy(kl_fc_p2t.state_dict())
-        elif val_accuracy_2 == best_val_accuracy_2:
-            if val_accuracy_1 > best_val_accuracy_1:
-                correspond_train_acc_1 = train_accuracy_1
-                correspond_train_acc_2 = train_accuracy_2
-                kl_fc_t2p_wts = copy.deepcopy(kl_fc_t2p.state_dict())
-                kl_fc_p2t_wts = copy.deepcopy(kl_fc_p2t.state_dict())
-            elif val_accuracy_1 == best_val_accuracy_1:
-                if train_accuracy_2 > correspond_train_acc_2:
-                    correspond_train_acc_2 = train_accuracy_2
-                    correspond_train_acc_1 = train_accuracy_1
-                    kl_fc_t2p_wts = copy.deepcopy(kl_fc_t2p.state_dict())
-                    kl_fc_p2t_wts = copy.deepcopy(kl_fc_p2t.state_dict())
-                elif train_accuracy_2 == correspond_train_acc_2:
-                    if train_accuracy_1 > best_val_accuracy_1:
-                        correspond_train_acc_1 = train_accuracy_1
-                        kl_fc_t2p_wts = copy.deepcopy(kl_fc_t2p.state_dict())
-                        kl_fc_p2t_wts = copy.deepcopy(kl_fc_p2t.state_dict())
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            correspond_train_acc = train_accuracy
+            best_model_wts = copy.deepcopy(model.state_dict())
+        if val_accuracy == best_val_accuracy:
+            if train_accuracy > correspond_train_acc:
+                correspond_train_acc = train_accuracy
+                best_model_wts = copy.deepcopy(model.state_dict())
 
-        record_np[epoch, 0] = train_accuracy_1
-        record_np[epoch, 1] = train_accuracy_2
-        record_np[epoch, 2] = train_average_loss_1
-        record_np[epoch, 3] = train_average_loss_2
-        record_np[epoch, 4] = val_accuracy_1
-        record_np[epoch, 5] = val_accuracy_2
-        record_np[epoch, 6] = val_average_loss_1
-        record_np[epoch, 7] = val_average_loss_2
+        record_np[epoch, 0] = train_accuracy
+        record_np[epoch, 1] = train_average_loss
+        record_np[epoch, 2] = val_accuracy
+        record_np[epoch, 3] = val_average_loss
 
-    print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
-    print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
-    save_val_1 = int("{:4.0f}".format(best_val_accuracy_1 * 10000))
-    save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
-    public_name = "train_kl" \
+    print('best accuracy: {:.4f} cor train accu: {:.4f}'.format(best_val_accuracy, correspond_train_acc))
+
+    save_val = int("{:4.0f}".format(best_val_accuracy * 10000))
+    save_train = int("{:4.0f}".format(correspond_train_acc * 10000))
+    public_name = "lstm_relu" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
+                  + "_mulopt_" + str(multi_optim) \
                   + "_flip_" + str(use_flip) \
                   + "_crop_" + str(crop_type) \
                   + "_batch_" + str(train_batch_size) \
-                  + "_val1_" + str(save_val_1) \
-                  + "_val2_" + str(save_val_2)
+                  + "_train_" + str(save_train) \
+                  + "_val_" + str(save_val)
+    model_name = public_name + ".pth"
+    torch.save(best_model_wts, model_name)
 
-    record_name = public_name + "_record.npy"
+    record_name = public_name + ".npy"
     np.save(record_name, record_np)
-    loss_name = public_name + "_loss.npy"
-    np.save(loss_name, loss_np)
-    p2t_name = public_name + "_p2t.pth"
-    torch.save(kl_fc_p2t_wts, p2t_name)
-    t2p_name = public_name + "_t2p.pth"
-    torch.save(kl_fc_t2p_wts, t2p_name)
 
 
 def main():
