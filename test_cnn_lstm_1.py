@@ -52,28 +52,6 @@ def pil_loader(path):
         with Image.open(f) as img:
             return img.convert('RGB')
 
-class CholecDataset(Dataset):
-    def __init__(self, file_paths, file_labels, transform=None,
-                 loader=pil_loader):
-        self.file_paths = file_paths
-        self.file_labels_1 = file_labels[:, range(7)]
-        self.file_labels_2 = file_labels[:, -1]
-        self.transform = transform
-        # self.target_transform=target_transform
-        self.loader = loader
-
-    def __getitem__(self, index):
-        img_names = self.file_paths[index]
-        labels_1 = self.file_labels_1[index]
-        labels_2 = self.file_labels_2[index]
-        imgs = self.loader(img_names)
-        if self.transform is not None:
-            imgs = self.transform(imgs)
-
-        return imgs, labels_1, labels_2
-
-    def __len__(self):
-        return len(self.file_paths)
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -113,24 +91,29 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
         self.fc = nn.Linear(512, 7)
-        self.fc2 = nn.Linear(2048, 7)
+        self.fc2 = nn.Linear(2048, 512)
+        self.fc3 = nn.Linear(512, 7)
+        self.relu = nn.ReLU()
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
+        init.xavier_uniform(self.fc3.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         z = self.fc2(x)
+        z = self.fc3(self.relu(z))
         x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
+        y = self.fc(self.relu(y))
         return z, y
+
 
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0

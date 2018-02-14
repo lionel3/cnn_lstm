@@ -37,6 +37,7 @@ parser.add_argument('--nesterov', default=False, type=bool, help='nesterov momen
 parser.add_argument('--sgdadjust', default=1, type=int, help='sgd method adjust lr 0 for step 1 for min, default 1')
 parser.add_argument('--sgdstep', default=5, type=int, help='number of steps to adjust lr for sgd, default 5')
 parser.add_argument('--sgdgamma', default=0.1, type=float, help='gamma of steps to adjust lr for sgd, default 0.1')
+parser.add_argument('-a', '--alpha', default=1.0, type=float, help='kl loss ratio, default 1.0')
 
 args = parser.parse_args()
 
@@ -55,6 +56,7 @@ momentum = args.momentum
 weight_decay = args.weightdecay
 dampening = args.dampening
 use_nesterov = args.nesterov
+alpha = args.alpha
 
 sgd_adjust_lr = args.sgdadjust
 sgd_step = args.sgdstep
@@ -82,6 +84,7 @@ print('use nesterov    : {:6d}'.format(use_nesterov))
 print('method for sgd  : {:6d}'.format(sgd_adjust_lr))
 print('step for sgd    : {:6d}'.format(sgd_step))
 print('gamma for sgd   : {:.4f}'.format(sgd_gamma))
+print('alpha for kl    : {:.4f}'.format(alpha))
 
 
 def pil_loader(path):
@@ -155,6 +158,47 @@ class CholecDataset(Dataset):
         return len(self.file_paths)
 
 
+class multi_lstm_p2t(torch.nn.Module):
+    def __init__(self):
+        super(multi_lstm_p2t, self).__init__()
+        resnet = models.resnet50(pretrained=True)
+        self.share = torch.nn.Sequential()
+        self.share.add_module("conv1", resnet.conv1)
+        self.share.add_module("bn1", resnet.bn1)
+        self.share.add_module("relu", resnet.relu)
+        self.share.add_module("maxpool", resnet.maxpool)
+        self.share.add_module("layer1", resnet.layer1)
+        self.share.add_module("layer2", resnet.layer2)
+        self.share.add_module("layer3", resnet.layer3)
+        self.share.add_module("layer4", resnet.layer4)
+        self.share.add_module("avgpool", resnet.avgpool)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
+        self.fc = nn.Linear(512, 7)
+        self.fc2 = nn.Linear(2048, 512)
+        self.fc3 = nn.Linear(512, 7)
+        self.relu = nn.ReLU()
+        init.xavier_normal(self.lstm.all_weights[0][0])
+        init.xavier_normal(self.lstm.all_weights[0][1])
+        init.xavier_uniform(self.fc.weight)
+        init.xavier_uniform(self.fc2.weight)
+        init.xavier_uniform(self.fc3.weight)
+        self.fc_p2t = nn.Linear(512, 7)
+        init.xavier_uniform(self.fc_p2t.weight)
+
+    def forward(self, x):
+        x = self.share.forward(x)
+        x = x.view(-1, 2048)
+        z = self.fc2(x)
+        z = self.fc3(self.relu(z))
+        x = x.view(-1, sequence_length, 2048)
+        self.lstm.flatten_parameters()
+        y, _ = self.lstm(x)
+        y = y.contiguous().view(-1, 512)
+        y1 = self.fc(self.relu(y))
+        p2t = self.fc_p2t(self.relu(y))
+        return z, y1, p2t
+
+
 class multi_lstm(torch.nn.Module):
     def __init__(self):
         super(multi_lstm, self).__init__()
@@ -169,23 +213,27 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
         self.fc = nn.Linear(512, 7)
-        self.fc2 = nn.Linear(2048, 7)
+        self.fc2 = nn.Linear(2048, 512)
+        self.fc3 = nn.Linear(512, 7)
+        self.relu = nn.ReLU()
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
+        init.xavier_uniform(self.fc3.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         z = self.fc2(x)
+        z = self.fc3(self.relu(z))
         x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
+        y = self.fc(self.relu(y))
         return z, y
 
 
@@ -284,7 +332,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train_we_use = len(train_useful_start_idx) // num_gpu * num_gpu
     num_val_we_use = len(val_useful_start_idx) // num_gpu * num_gpu
     # num_train_we_use = 800
-    # num_val_we_use = 800
+    # num_val_we_use = 80
 
     train_we_use_start_idx = train_useful_start_idx[0:num_train_we_use]
     val_we_use_start_idx = val_useful_start_idx[0:num_val_we_use]
@@ -328,48 +376,62 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pin_memory=False
     )
 
-    model = multi_lstm()
+    model_old = multi_lstm()
+    model_old = DataParallel(model_old)
+    model_old.load_state_dict(torch.load(
+        "cnn_lstm_1_epoch_25_length_10_opt_1_mulopt_1_flip_0_crop_1_batch_300_train1_9991_train2_9958_val1_9725_val2_8864.pth"))
+
+    model = multi_lstm_p2t()
+    model.share = model_old.module.share
+    model.lstm = model_old.module.lstm
+    model.fc = model_old.module.fc
+    model.fc2 = model_old.module.fc2
+    model.fc3 = model_old.module.fc3
+
     model = DataParallel(model)
-    model.load_state_dict(torch.load(
-        'cnn_lstm_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_200_train1_9998_train2_9987_val1_9731_val2_8752.pth'))
-    kl_fc_p2t = nn.Linear(7, 7)
-
-    all_phase_to_tool = np.load('kl_fc_p2t.npy')
-
-    kl_fc_p2t.weight.data = torch.from_numpy(all_phase_to_tool.astype('float32'))
-
-    for param in kl_fc_p2t.parameters():
-        param.requires_grad = True
+    for param in model.module.fc_p2t.parameters():
+        param.requires_grad = False
+    model.module.fc_p2t.load_state_dict(torch.load(
+        "fc_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_800_train1_9951_train2_9713_val1_9686_val2_7867_p2t.pth"))
 
     if use_gpu:
         model = model.cuda()
-        kl_fc_p2t = kl_fc_p2t.cuda()
+        model.module.fc_p2t = model.module.fc_p2t.cuda()
 
     criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
     criterion_2 = nn.CrossEntropyLoss(size_average=False)
     criterion_3 = nn.KLDivLoss(size_average=False)
-    softmax_cuda = nn.Softmax().cuda()
     sigmoid_cuda = nn.Sigmoid().cuda()
 
     if multi_optim == 0:
         if optimizer_choice == 0:
-            optimizer = optim.SGD([model.parameters(), kl_fc_p2t.parameters()],
-                                  lr=learning_rate, momentum=momentum, dampening=dampening,
-                                  weight_decay=weight_decay, nesterov=use_nesterov)
+            optimizer = optim.SGD([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), },
+                {'params': model.module.fc.parameters()},
+                {'params': model.module.fc2.parameters()},
+                {'params': model.module.fc3.parameters()}],
+                lr=learning_rate, momentum=momentum, dampening=dampening,
+                weight_decay=weight_decay, nesterov=use_nesterov)
             if sgd_adjust_lr == 0:
                 exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_step, gamma=sgd_gamma)
             elif sgd_adjust_lr == 1:
                 exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
         elif optimizer_choice == 1:
-            optimizer = optim.Adam([model.parameters(), kl_fc_p2t.parameters()],
-                                   lr=learning_rate)
+            optimizer = optim.Adam([
+                {'params': model.module.share.parameters()},
+                {'params': model.module.lstm.parameters(), },
+                {'params': model.module.fc.parameters()},
+                {'params': model.module.fc2.parameters()},
+                {'params': model.module.fc3.parameters()}], lr=learning_rate)
     elif multi_optim == 1:
         if optimizer_choice == 0:
             optimizer = optim.SGD([
                 {'params': model.module.share.parameters()},
-                {'params': kl_fc_p2t.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc2.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc3.parameters(), 'lr': learning_rate},
             ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
                 weight_decay=weight_decay, nesterov=use_nesterov)
             if sgd_adjust_lr == 0:
@@ -379,19 +441,20 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         elif optimizer_choice == 1:
             optimizer = optim.Adam([
                 {'params': model.module.share.parameters()},
-                {'params': kl_fc_p2t.parameters()},
                 {'params': model.module.lstm.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc2.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc3.parameters(), 'lr': learning_rate},
             ], lr=learning_rate / 10)
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_val_accuracy_1 = 0.0
-    best_val_accuracy_2 = 0.0  # judge by accu2
+    best_val_accuracy_2 = 0.0
     correspond_train_acc_1 = 0.0
     correspond_train_acc_2 = 0.0
 
     # 要存储2个train的准确率 2个valid的准确率 3个train 3个loss的loss, 一共10个数据要记录
-    record_np = np.zeros([epochs, 10])
+    record_np = np.zeros([epochs, 12])
 
     for epoch in range(epochs):
         # np.random.seed(epoch)
@@ -415,6 +478,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_loss_3 = 0.0
         train_corrects_1 = 0
         train_corrects_2 = 0
+        train_corrects_3 = 0
 
         train_start_time = time.time()
         for data in train_loader:
@@ -430,39 +494,42 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             optimizer.zero_grad()
 
-            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_1, outputs_2, outputs_3 = model.forward(inputs)
 
             _, preds_2 = torch.max(outputs_2.data, 1)
+            train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
-            sig_out = outputs_1.data
-            sig_out = sigmoid_cuda(sig_out)
-            preds_1 = torch.cuda.ByteTensor(sig_out > 0.5)
+            sig_output_1 = sigmoid_cuda(outputs_1)
+            sig_output_3 = sigmoid_cuda(outputs_3)
+
+            sig_average = (sig_output_1.data + sig_output_3.data) / 2
+
+            preds_1 = torch.cuda.ByteTensor(sig_output_1.data > 0.5)
             preds_1 = preds_1.long()
             train_corrects_1 += torch.sum(preds_1 == labels_1.data)
+
+            preds_3 = torch.cuda.ByteTensor(sig_average > 0.5)
+            preds_3 = preds_3.long()
+            train_corrects_3 += torch.sum(preds_3 == labels_1.data)
+
             labels_1 = Variable(labels_1.data.float())
             loss_1 = criterion_1(outputs_1, labels_1)
             loss_2 = criterion_2(outputs_2, labels_2)
 
-            sig_output_1 = sigmoid_cuda(outputs_1)
-            soft_output_2 = softmax_cuda(outputs_2)
-            sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
-            soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
-
-            kl_output_2 = kl_fc_p2t(soft_output_2)
-
-            loss_3 = torch.abs(criterion_3(kl_output_2, sig_output_1))
-            loss = loss_1 + loss_2 + loss_3
+            sig_output_3 = Variable(sig_output_3.data, requires_grad=False)
+            loss_3 = torch.abs(criterion_3(sig_output_1, sig_output_3))
+            loss = loss_1 + loss_2 + loss_3 * alpha
             loss.backward()
             optimizer.step()
 
             train_loss_1 += loss_1.data[0]
             train_loss_2 += loss_2.data[0]
             train_loss_3 += loss_3.data[0]
-            train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
         train_elapsed_time = time.time() - train_start_time
         train_accuracy_1 = train_corrects_1 / num_train_all / 7
         train_accuracy_2 = train_corrects_2 / num_train_all
+        train_accuracy_3 = train_corrects_3 / num_train_all / 7
         train_average_loss_1 = train_loss_1 / num_train_all / 7
         train_average_loss_2 = train_loss_2 / num_train_all
         train_average_loss_3 = train_loss_3 / num_train_all
@@ -475,6 +542,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         val_loss_3 = 0.0
         val_corrects_1 = 0
         val_corrects_2 = 0
+        val_corrects_3 = 0
 
         val_start_time = time.time()
         for data in val_loader:
@@ -489,53 +557,39 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels_1 = Variable(labels_1, volatile=True)
                 labels_2 = Variable(labels_2, volatile=True)
 
-            if crop_type == 0 or crop_type == 1:
-                outputs_1, outputs_2 = model.forward(inputs)
-            elif crop_type == 5:
-                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-                inputs = inputs.view(-1, 3, 224, 224)
-                outputs_1, outputs_2 = model.forward(inputs)
-                outputs_1 = outputs_1.view(5, -1, 7)
-                outputs_1 = torch.mean(outputs_1, 0)
-                outputs_2 = outputs_2.view(5, -1, 7)
-                outputs_2 = torch.mean(outputs_2, 0)
-            elif crop_type == 10:
-                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-                inputs = inputs.view(-1, 3, 224, 224)
-                outputs_1, outputs_2 = model.forward(inputs)
-                outputs_1 = outputs_1.view(10, -1, 7)
-                outputs_1 = torch.mean(outputs_1, 0)
-                outputs_2 = outputs_2.view(10, -1, 7)
-                outputs_2 = torch.mean(outputs_2, 0)
+            outputs_1, outputs_2, outputs_3 = model.forward(inputs)
+            outputs_2 = outputs_2[(sequence_length - 1):: sequence_length]
+            _, preds_2 = torch.max(outputs_2.data, 1)
+            val_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
             sig_output_1 = sigmoid_cuda(outputs_1)
-            soft_output_2 = softmax_cuda(outputs_2)
-            sig_output_1 = Variable(sig_output_1.data, requires_grad=False)
-            soft_output_2 = Variable(soft_output_2.data, requires_grad=False)
+            sig_output_3 = sigmoid_cuda(outputs_3)
 
-            kl_output_2 = kl_fc_p2t(soft_output_2)
+            sig_average = (sig_output_1.data + sig_output_3.data) / 2
 
-            outputs_2 = outputs_2[sequence_length - 1::sequence_length]
-            _, preds_2 = torch.max(outputs_2.data, 1)
-
-            sig_out = outputs_1.data
-            sig_out = sigmoid_cuda(sig_out)
-            preds_1 = torch.cuda.ByteTensor(sig_out > 0.5)
+            preds_1 = torch.cuda.ByteTensor(sig_output_1.data > 0.5)
             preds_1 = preds_1.long()
             val_corrects_1 += torch.sum(preds_1 == labels_1.data)
+
+            preds_3 = torch.cuda.ByteTensor(sig_average > 0.5)
+            preds_3 = preds_3.long()
+            val_corrects_3 += torch.sum(preds_3 == labels_1.data)
+
             labels_1 = Variable(labels_1.data.float())
             loss_1 = criterion_1(outputs_1, labels_1)
-            val_loss_1 += loss_1.data[0]
             loss_2 = criterion_2(outputs_2, labels_2)
-            val_corrects_2 += torch.sum(preds_2 == labels_2.data)
-            val_loss_2 += loss_2.data[0]
 
-            loss_3 = torch.abs(criterion_3(kl_output_2, sig_output_1))
+            sig_output_3 = Variable(sig_output_3.data, requires_grad=False)
+            loss_3 = torch.abs(criterion_3(sig_output_1, sig_output_3))
+
+            val_loss_1 += loss_1.data[0]
+            val_loss_2 += loss_2.data[0]
             val_loss_3 += loss_3.data[0]
 
         val_elapsed_time = time.time() - val_start_time
         val_accuracy_1 = val_corrects_1 / (num_val_all * 7)
         val_accuracy_2 = val_corrects_2 / num_val_we_use
+        val_accuracy_3 = val_corrects_3 / (num_val_all * 7)
         val_average_loss_1 = val_loss_1 / (num_val_all * 7)
         val_average_loss_2 = val_loss_2 / num_val_we_use
         val_average_loss_3 = val_loss_3 / num_val_all
@@ -543,6 +597,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         print('epoch: {:3d}'
               ' train time: {:2.0f}m{:2.0f}s'
               ' train accu_1: {:.4f}'
+              ' train accu_3: {:.4f}'
               ' train accu_2: {:.4f}'
               ' train loss_1: {:4.4f}'
               ' train loss_2: {:4.4f}'
@@ -551,6 +606,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       train_elapsed_time // 60,
                       train_elapsed_time % 60,
                       train_accuracy_1,
+                      train_accuracy_3,
                       train_accuracy_2,
                       train_average_loss_1,
                       train_average_loss_2,
@@ -558,6 +614,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         print('epoch: {:3d}'
               ' valid time: {:2.0f}m{:2.0f}s'
               ' valid accu_1: {:.4f}'
+              ' valid accu_3: {:.4f}'
               ' valid accu_2: {:.4f}'
               ' valid loss_1: {:4.4f}'
               ' valid loss_2: {:4.4f}'
@@ -566,6 +623,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       val_elapsed_time // 60,
                       val_elapsed_time % 60,
                       val_accuracy_1,
+                      val_accuracy_3,
                       val_accuracy_2,
                       val_average_loss_1,
                       val_average_loss_2,
@@ -575,7 +633,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             if sgd_adjust_lr == 0:
                 exp_lr_scheduler.step()
             elif sgd_adjust_lr == 1:
-                exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
+                exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2 + alpha * val_average_loss_3)
 
         if val_accuracy_2 > best_val_accuracy_2 and val_accuracy_1 > 0.95:
             best_val_accuracy_2 = val_accuracy_2
@@ -599,16 +657,18 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                         best_model_wts = copy.deepcopy(model.state_dict())
 
         record_np[epoch, 0] = train_accuracy_1
-        record_np[epoch, 1] = train_accuracy_2
-        record_np[epoch, 2] = train_average_loss_1
-        record_np[epoch, 3] = train_average_loss_2
-        record_np[epoch, 4] = train_average_loss_3
+        record_np[epoch, 1] = train_accuracy_3
+        record_np[epoch, 2] = train_accuracy_2
+        record_np[epoch, 3] = train_average_loss_1
+        record_np[epoch, 4] = train_average_loss_2
+        record_np[epoch, 5] = train_average_loss_3
 
-        record_np[epoch, 5] = val_accuracy_1
-        record_np[epoch, 6] = val_accuracy_2
-        record_np[epoch, 7] = val_average_loss_1
-        record_np[epoch, 8] = val_average_loss_2
-        record_np[epoch, 9] = val_average_loss_3
+        record_np[epoch, 6] = val_accuracy_1
+        record_np[epoch, 7] = val_accuracy_3
+        record_np[epoch, 7] = val_accuracy_2
+        record_np[epoch, 9] = val_average_loss_1
+        record_np[epoch, 10] = val_average_loss_2
+        record_np[epoch, 11] = val_average_loss_3
 
     print('best accuracy_1: {:.4f} cor train accu_1: {:.4f}'.format(best_val_accuracy_1, correspond_train_acc_1))
     print('best accuracy_2: {:.4f} cor train accu_2: {:.4f}'.format(best_val_accuracy_2, correspond_train_acc_2))
@@ -617,7 +677,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    public_name = "cnn_lstm_klp2t" \
+    public_name = "cnn_lstm1_p2t" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
@@ -634,10 +694,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
     record_name = public_name + ".npy"
     np.save(record_name, record_np)
-
-    kl_fc_p2t_name = public_name + "p2t.npy"
-    kl_fc_p2t_np = kl_fc_p2t.cpu().weight.data.numpy()
-    np.save(kl_fc_p2t_name, kl_fc_p2t_np)
 
 
 def main():

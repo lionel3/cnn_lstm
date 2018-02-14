@@ -10,7 +10,7 @@ from torch.nn import DataParallel
 import os
 from PIL import Image, ImageOps
 import time
-import
+import pickle
 import numpy as np
 from torchvision.transforms import Lambda
 import argparse
@@ -168,23 +168,27 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
         self.fc = nn.Linear(512, 7)
-        self.fc2 = nn.Linear(2048, 7)
+        self.fc2 = nn.Linear(2048, 512)
+        self.fc3 = nn.Linear(512, 7)
+        self.relu = nn.ReLU()
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
+        init.xavier_uniform(self.fc3.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         z = self.fc2(x)
+        z = self.fc3(self.relu(z))
         x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
+        y = self.fc(self.relu(y))
         return z, y
 
 
@@ -353,6 +357,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.lstm.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc2.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc3.parameters(), 'lr': learning_rate},
             ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
                 weight_decay=weight_decay, nesterov=use_nesterov)
             if sgd_adjust_lr == 0:
@@ -365,6 +370,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 {'params': model.module.lstm.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc.parameters(), 'lr': learning_rate},
                 {'params': model.module.fc2.parameters(), 'lr': learning_rate},
+                {'params': model.module.fc3.parameters(), 'lr': learning_rate},
             ], lr=learning_rate / 10)
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -573,7 +579,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    public_name = "cnn_lstm" \
+    public_name = "cnn_lstm_1" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \

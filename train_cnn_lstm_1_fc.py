@@ -10,7 +10,7 @@ from torch.nn import DataParallel
 import os
 from PIL import Image, ImageOps
 import time
-import
+import pickle
 import numpy as np
 from torchvision.transforms import Lambda
 import argparse
@@ -168,23 +168,27 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
         self.fc = nn.Linear(512, 7)
-        self.fc2 = nn.Linear(2048, 7)
+        self.fc2 = nn.Linear(2048, 512)
+        self.fc3 = nn.Linear(512, 7)
+        self.relu = nn.ReLU()
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
+        init.xavier_uniform(self.fc3.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
         x = x.view(-1, 2048)
         z = self.fc2(x)
+        z = self.fc3(self.relu(z))
         x = x.view(-1, sequence_length, 2048)
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
+        y = self.fc(self.relu(y))
         return z, y
 
 
@@ -332,46 +336,44 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     if use_gpu:
         model = model.cuda()
         sig_f = sig_f.cuda()
+
     model = DataParallel(model)
+    model.load_state_dict(torch.load(
+        'cnn_lstm_1_epoch_25_length_4_opt_0_mulopt_1_flip_0_crop_1_batch_200_train1_9999_train2_9994_val1_9717_val2_8719.pth'))
+
+    model.module.fc.load_state_dict(torch.load(
+        "fc_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_800_train1_9951_train2_9713_val1_9686_val2_7867_t2p.pth"))
+    model.module.fc3.load_state_dict(torch.load(
+        "fc_epoch_25_length_4_opt_1_mulopt_1_flip_0_crop_1_batch_800_train1_9951_train2_9713_val1_9686_val2_7867_p2t.pth"))
     criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
     criterion_2 = nn.CrossEntropyLoss(size_average=False)
 
-    if multi_optim == 0:
-        if optimizer_choice == 0:
-            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, dampening=dampening,
-                                  weight_decay=weight_decay, nesterov=use_nesterov)
-            if sgd_adjust_lr == 0:
-                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_step, gamma=sgd_gamma)
-            elif sgd_adjust_lr == 1:
-                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-        elif optimizer_choice == 1:
-            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    elif multi_optim == 1:
-        if optimizer_choice == 0:
-            optimizer = optim.SGD([
-                {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
-                {'params': model.module.fc.parameters(), 'lr': learning_rate},
-                {'params': model.module.fc2.parameters(), 'lr': learning_rate},
-            ], lr=learning_rate / 10, momentum=momentum, dampening=dampening,
-                weight_decay=weight_decay, nesterov=use_nesterov)
-            if sgd_adjust_lr == 0:
-                exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_step, gamma=sgd_gamma)
-            elif sgd_adjust_lr == 1:
-                exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-        elif optimizer_choice == 1:
-            optimizer = optim.Adam([
-                {'params': model.module.share.parameters()},
-                {'params': model.module.lstm.parameters(), 'lr': learning_rate},
-                {'params': model.module.fc.parameters(), 'lr': learning_rate},
-                {'params': model.module.fc2.parameters(), 'lr': learning_rate},
-            ], lr=learning_rate / 10)
+    for param in model.module.parameters():
+        param.requires_grad = False
+    for param in model.module.fc.parameters():
+        param.requires_grad = True
+    for param in model.module.fc3.parameters():
+        param.requires_grad = True
 
-    best_model_wts = copy.deepcopy(model.state_dict())
+    if optimizer_choice == 0:
+        optimizer = optim.SGD([{'params': model.module.fc.parameters()},
+                               {'params': model.module.fc3.parameters()}], lr=learning_rate, momentum=momentum,
+                              dampening=dampening, weight_decay=weight_decay, nesterov=use_nesterov)
+        if sgd_adjust_lr == 0:
+            exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=sgd_step, gamma=sgd_gamma)
+        elif sgd_adjust_lr == 1:
+            exp_lr_scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+    elif optimizer_choice == 1:
+        optimizer = optim.Adam([{'params': model.module.fc.parameters()},
+                                {'params': model.module.fc3.parameters()}], lr=learning_rate)
+
     best_val_accuracy_1 = 0.0
     best_val_accuracy_2 = 0.0  # judge by accu2
     correspond_train_acc_1 = 0.0
     correspond_train_acc_2 = 0.0
+
+    t2p_wts = copy.deepcopy(model.module.fc.state_dict())
+    p2t_wts = copy.deepcopy(model.module.fc3.state_dict())
 
     record_np = np.zeros([epochs, 8])
 
@@ -411,7 +413,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
 
             optimizer.zero_grad()
 
-            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_2, outputs_1 = model.forward(inputs)
 
             _, preds_2 = torch.max(outputs_2.data, 1)
 
@@ -458,24 +460,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                 labels_1 = Variable(labels_1, volatile=True)
                 labels_2 = Variable(labels_2, volatile=True)
 
-            if crop_type == 0 or crop_type == 1:
-                outputs_1, outputs_2 = model.forward(inputs)
-            elif crop_type == 5:
-                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-                inputs = inputs.view(-1, 3, 224, 224)
-                outputs_1, outputs_2 = model.forward(inputs)
-                outputs_1 = outputs_1.view(5, -1, 7)
-                outputs_1 = torch.mean(outputs_1, 0)
-                outputs_2 = outputs_2.view(5, -1, 7)
-                outputs_2 = torch.mean(outputs_2, 0)
-            elif crop_type == 10:
-                inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
-                inputs = inputs.view(-1, 3, 224, 224)
-                outputs_1, outputs_2 = model.forward(inputs)
-                outputs_1 = outputs_1.view(10, -1, 7)
-                outputs_1 = torch.mean(outputs_1, 0)
-                outputs_2 = outputs_2.view(10, -1, 7)
-                outputs_2 = torch.mean(outputs_2, 0)
+            outputs_2, outputs_1 = model.forward(inputs)
 
             outputs_2 = outputs_2[sequence_length - 1::sequence_length]
             _, preds_2 = torch.max(outputs_2.data, 1)
@@ -537,26 +522,30 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             elif sgd_adjust_lr == 1:
                 exp_lr_scheduler.step(val_average_loss_1 + val_average_loss_2)
 
-        if val_accuracy_2 > best_val_accuracy_2 and val_accuracy_1 > 0.95:
+        if val_accuracy_2 > best_val_accuracy_2:
             best_val_accuracy_2 = val_accuracy_2
             best_val_accuracy_1 = val_accuracy_1
             correspond_train_acc_1 = train_accuracy_1
             correspond_train_acc_2 = train_accuracy_2
-            best_model_wts = copy.deepcopy(model.state_dict())
-        elif val_accuracy_2 == best_val_accuracy_2 and val_accuracy_1 > 0.95:
+            t2p_wts = copy.deepcopy(model.module.fc.state_dict())
+            p2t_wts = copy.deepcopy(model.module.fc3.state_dict())
+        elif val_accuracy_2 == best_val_accuracy_2:
             if val_accuracy_1 > best_val_accuracy_1:
                 correspond_train_acc_1 = train_accuracy_1
                 correspond_train_acc_2 = train_accuracy_2
-                best_model_wts = copy.deepcopy(model.state_dict())
+                t2p_wts = copy.deepcopy(model.module.fc.state_dict())
+                p2t_wts = copy.deepcopy(model.module.fc3.state_dict())
             elif val_accuracy_1 == best_val_accuracy_1:
                 if train_accuracy_2 > correspond_train_acc_2:
                     correspond_train_acc_2 = train_accuracy_2
                     correspond_train_acc_1 = train_accuracy_1
-                    best_model_wts = copy.deepcopy(model.state_dict())
+                    t2p_wts = copy.deepcopy(model.module.fc.state_dict())
+                    p2t_wts = copy.deepcopy(model.module.fc3.state_dict())
                 elif train_accuracy_2 == correspond_train_acc_2:
                     if train_accuracy_1 > best_val_accuracy_1:
                         correspond_train_acc_1 = train_accuracy_1
-                        best_model_wts = copy.deepcopy(model.state_dict())
+                        t2p_wts = copy.deepcopy(model.module.fc.state_dict())
+                        p2t_wts = copy.deepcopy(model.module.fc3.state_dict())
 
         record_np[epoch, 0] = train_accuracy_1
         record_np[epoch, 1] = train_accuracy_2
@@ -573,7 +562,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     save_val_2 = int("{:4.0f}".format(best_val_accuracy_2 * 10000))
     save_train_1 = int("{:4.0f}".format(correspond_train_acc_1 * 10000))
     save_train_2 = int("{:4.0f}".format(correspond_train_acc_2 * 10000))
-    public_name = "cnn_lstm" \
+    public_name = "fc" \
                   + "_epoch_" + str(epochs) \
                   + "_length_" + str(sequence_length) \
                   + "_opt_" + str(optimizer_choice) \
@@ -585,8 +574,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                   + "_train2_" + str(save_train_2) \
                   + "_val1_" + str(save_val_1) \
                   + "_val2_" + str(save_val_2)
-    model_name = public_name + ".pth"
-    torch.save(best_model_wts, model_name)
+
+    t2p_name = public_name + "_t2p.pth"
+    p2t_name = public_name + "_p2t.pth"
+    torch.save(t2p_wts, t2p_name)
+    torch.save(p2t_wts, p2t_name)
 
     record_name = public_name + ".npy"
     np.save(record_name, record_np)

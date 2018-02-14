@@ -99,9 +99,9 @@ class CholecDataset(Dataset):
         return len(self.file_paths)
 
 
-class multi_lstm(torch.nn.Module):
+class multi_lstm_p2t(torch.nn.Module):
     def __init__(self):
-        super(multi_lstm, self).__init__()
+        super(multi_lstm_p2t, self).__init__()
         resnet = models.resnet50(pretrained=True)
         self.share = torch.nn.Sequential()
         self.share.add_module("conv1", resnet.conv1)
@@ -113,13 +113,16 @@ class multi_lstm(torch.nn.Module):
         self.share.add_module("layer3", resnet.layer3)
         self.share.add_module("layer4", resnet.layer4)
         self.share.add_module("avgpool", resnet.avgpool)
-        self.lstm = nn.LSTM(2048, 512, batch_first=True)
+        self.lstm = nn.LSTM(2048, 512, batch_first=True, dropout=1)
         self.fc = nn.Linear(512, 7)
         self.fc2 = nn.Linear(2048, 7)
+        self.relu = nn.ReLU()
         init.xavier_normal(self.lstm.all_weights[0][0])
         init.xavier_normal(self.lstm.all_weights[0][1])
         init.xavier_uniform(self.fc.weight)
         init.xavier_uniform(self.fc2.weight)
+        self.fc_p2t = nn.Linear(512, 7)
+        init.xavier_uniform(self.fc_p2t.weight)
 
     def forward(self, x):
         x = self.share.forward(x)
@@ -129,8 +132,9 @@ class multi_lstm(torch.nn.Module):
         self.lstm.flatten_parameters()
         y, _ = self.lstm(x)
         y = y.contiguous().view(-1, 512)
-        y = self.fc(y)
-        return z, y
+        y1 = self.fc(y)
+        p2t = self.fc_p2t(self.relu(y))
+        return z, y1, p2t
 
 def get_useful_start_idx(sequence_length, list_each_length):
     count = 0
@@ -242,7 +246,7 @@ def test_model(test_dataset, test_num_each):
         num_workers=1,
         pin_memory=False
     )
-    model = multi_lstm()
+    model = multi_lstm_p2t()
     model = DataParallel(model)
     model.load_state_dict(torch.load(model_name))
     # model = model.module
@@ -281,11 +285,11 @@ def test_model(test_dataset, test_num_each):
             labels_2 = Variable(labels_2, voatile=True)
 
         if crop_type == 0 or crop_type == 1:
-            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_1, outputs_2, _ = model.forward(inputs)
         elif crop_type == 5:
             inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
             inputs = inputs.view(-1, 3, 224, 224)
-            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_1, outputs_2, _ = model.forward(inputs)
             outputs_1 = outputs_1.view(5, -1, 7)
             outputs_1 = torch.mean(outputs_1, 0)
             outputs_2 = outputs_2.view(5, -1, 7)
@@ -293,7 +297,7 @@ def test_model(test_dataset, test_num_each):
         elif crop_type == 10:
             inputs = inputs.permute(1, 0, 2, 3, 4).contiguous()
             inputs = inputs.view(-1, 3, 224, 224)
-            outputs_1, outputs_2 = model.forward(inputs)
+            outputs_1, outputs_2, _ = model.forward(inputs)
             outputs_1 = outputs_1.view(10, -1, 7)
             outputs_1 = torch.mean(outputs_1, 0)
             outputs_2 = outputs_2.view(10, -1, 7)
@@ -308,7 +312,7 @@ def test_model(test_dataset, test_num_each):
             all_preds_1.append(outputs_1[i].data.cpu().numpy().tolist())
             all_labels_1.append(labels_1[i].data.cpu().numpy().tolist())
         for i in range(len(preds_2)):
-            all_preds_2.append(preds_2[i])
+            all_preds_2.append(outputs_2[i].data.cpu().numpy().tolist())
         print('preds_1: {:6d} preds_2: {:6d}'.format(len(all_preds_1), len(all_preds_2)))
 
         # labels_1 = Variable(labels_1.data.float())
@@ -364,10 +368,10 @@ def test_model(test_dataset, test_num_each):
     save_test2 = int("{:4.0f}".format(test_accuracy_2 * 10000))
 
     pred_1_name = model_pure_name + '_test1_' + str(save_test1) + '_crop_' + str(crop_type) + '.pkl'
-    pred_2_name = model_pure_name + '_test2_' + str(save_test2) + '_crop_' + str(crop_type) + '.pkl'
+    pred_2_name = 'best_preds2.pkl'
 
-    with open(pred_1_name, 'wb') as f:
-        pickle.dump(all_preds_1_cor, f)
+    # with open(pred_1_name, 'wb') as f:
+    #     pickle.dump(all_preds_1_cor, f)
     with open(pred_2_name, 'wb') as f:
         pickle.dump(all_preds_2, f)
 
