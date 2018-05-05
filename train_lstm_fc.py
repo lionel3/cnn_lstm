@@ -39,6 +39,7 @@ multi_optim = args.multi
 epochs = args.epo
 workers = args.work
 
+
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 print('number of gpu   : {:6d}'.format(num_gpu))

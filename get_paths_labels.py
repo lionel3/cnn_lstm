@@ -90,6 +90,7 @@ for j in range(len(tool_file_names)):
     # print(len(info_all))
     all_info_all.append(info_all)
 
+
 # for k in range(10):
 # print(all_info_all[0][k])
 with open('cholec80.pkl', 'wb') as f:

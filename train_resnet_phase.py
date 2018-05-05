@@ -50,10 +50,13 @@ print('num of epochs   : {:6d}'.format(epochs))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
 print('whether to flip : {:6d}'.format(use_flip))
+
+
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
             return img.convert('RGB')
+
 
 class CholecDataset(Dataset):
     def __init__(self, file_paths, file_labels, transform=None,
@@ -77,6 +80,7 @@ class CholecDataset(Dataset):
 
     def __len__(self):
         return len(self.file_paths)
+
 
 class pure_resnet(torch.nn.Module):
     def __init__(self):
@@ -173,6 +177,7 @@ def get_data(data_path):
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
+
 
 def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     num_train = len(train_dataset)
@@ -371,9 +376,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pickle.dump(all_info, f)
     print()
 
+
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
+
 
 if __name__ == "__main__":
     main()

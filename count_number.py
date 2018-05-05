@@ -24,6 +24,7 @@ def main():
     test_labels_1 = test_labels[:, 0:7]
     test_labels_2 = test_labels[:, -1]
 
+
     sum1 = 0
     sum2 = 0
     sum3 = 0

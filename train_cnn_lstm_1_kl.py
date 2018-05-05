@@ -440,6 +440,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
             train_loss_2 += loss_2.data[0]
             train_corrects_2 += torch.sum(preds_2 == labels_2.data)
 
+
         train_elapsed_time = time.time() - train_start_time
         train_accuracy_1 = train_corrects_1 / num_train_all / 7
         train_accuracy_2 = train_corrects_2 / num_train_all

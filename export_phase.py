@@ -18,6 +18,7 @@ args = parser.parse_args()
 sequence_length = args.seq
 pred_name = args.name
 
+
 with open(pred_name, 'rb') as f:
     ori_preds = pickle.load(f)
 

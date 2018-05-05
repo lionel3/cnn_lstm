@@ -403,6 +403,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     criterion_3 = nn.KLDivLoss(size_average=False)
     sigmoid_cuda = nn.Sigmoid().cuda()
 
+
     if multi_optim == 0:
         if optimizer_choice == 0:
             optimizer = optim.SGD([

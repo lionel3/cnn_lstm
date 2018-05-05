@@ -361,6 +361,7 @@ def test_model(test_dataset, test_num_each):
     print('cor_labels_1: {:6d}'.format(len(all_preds_1_cor)))
     print('cor_labels_1: {:6d}'.format(len(all_labels_1_cor)))
 
+
     pt_preds_1 = torch.from_numpy(np.asarray(all_preds_1_cor, dtype=np.float32))
     pt_labels_1 = torch.from_numpy(np.asarray(all_labels_1_cor, dtype=np.float32))
     pt_labels_1 = Variable(pt_labels_1, requires_grad=False)

@@ -42,6 +42,7 @@ workers = args.work
 crop_type = args.crop
 use_flip = args.flip
 
+
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 print('number of gpu   : {:6d}'.format(num_gpu))

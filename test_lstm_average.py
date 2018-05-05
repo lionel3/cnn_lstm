@@ -223,6 +223,7 @@ def test_model(test_dataset, test_num_each):
         num_workers=workers,
         pin_memory=False
     )
+
     model = resnet_lstm()
     model.load_state_dict(torch.load(model_name))
     model = model.module

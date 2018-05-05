@@ -25,6 +25,7 @@ parser.add_argument('-w', '--work', default=2, type=int, help='num of workers to
 parser.add_argument('-n', '--name', type=str, help='name of model')
 parser.add_argument('-c', '--crop', default=1, type=int, help='0 rand, 1 cent, 5 five_crop, 10 ten_crop, default 1')
 
+
 args = parser.parse_args()
 gpu_usg = ",".join(list(map(str, args.gpu)))
 os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg

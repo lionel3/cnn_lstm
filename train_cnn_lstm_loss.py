@@ -40,6 +40,7 @@ parser.add_argument('--sgdgamma', default=0.1, type=float, help='gamma of steps 
 
 args = parser.parse_args()
 
+
 gpu_usg = ",".join(list(map(str, args.gpu)))
 sequence_length = args.seq
 train_batch_size = args.train

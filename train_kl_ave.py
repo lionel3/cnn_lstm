@@ -37,6 +37,7 @@ parser.add_argument('--sgdadjust', default=1, type=int, help='sgd method adjust 
 parser.add_argument('--sgdstep', default=5, type=int, help='number of steps to adjust lr for sgd, default 5')
 parser.add_argument('--sgdgamma', default=0.1, type=float, help='gamma of steps to adjust lr for sgd, default 0.1')
 
+
 args = parser.parse_args()
 
 gpu_usg = ",".join(list(map(str, args.gpu)))

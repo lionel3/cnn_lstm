@@ -64,6 +64,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = gpu_usg
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 
+
 print('number of gpu   : {:6d}'.format(num_gpu))
 print('sequence length : {:6d}'.format(sequence_length))
 print('train batch size: {:6d}'.format(train_batch_size))

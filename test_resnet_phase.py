@@ -219,6 +219,7 @@ def test_model(test_dataset, test_num_each):
     test_accuracy = test_corrects / num_test
     test_average_loss = test_loss / num_test
 
+
     save_test = int("{:4.0f}".format(test_accuracy * 10000))
     pred_name = model_pure_name + '_test_' + str(save_test)+'_crop_' + str(crop_type) + '.pkl'
 

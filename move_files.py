@@ -30,6 +30,7 @@ def get_dirs(root_dir):
     file_paths.sort()
     return file_names, file_paths
 
+
 def get_files(root_dir):
     file_paths = []
     file_names = []
@@ -41,6 +42,7 @@ def get_files(root_dir):
     file_names.sort()
     file_paths.sort()
     return file_names, file_paths
+
 
 img_dir = '/home/lionel/cuhk/cholec/data_resize'
 dst_dir = '/home/lionel/cuhk/cholec/useless_image'

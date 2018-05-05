@@ -197,7 +197,6 @@ def get_useful_start_idx(sequence_length, list_each_length):
         count += list_each_length[i]
     return idx
 
-
 def get_data(data_path):
     with open(data_path, 'rb') as f:
         train_test_paths_labels = pickle.load(f)

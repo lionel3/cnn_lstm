@@ -36,7 +36,6 @@ crop_type = args.crop
 
 model_pure_name, _ = os.path.splitext(model_name)
 
-
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 
@@ -45,7 +44,8 @@ print('sequence length : {:6d}'.format(sequence_length))
 print('test batch size : {:6d}'.format(test_batch_size))
 print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
-print('name of this model: {:s}'.format(model_name))    # so we can store all result in the same file
+print('name of this model: {:s}'.format(model_name))  # so we can store all result in the same file
+
 
 def pil_loader(path):
     with open(path, 'rb') as f:
@@ -149,7 +149,6 @@ def get_data(data_path):
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
-
     train_transforms = transforms.Compose([
         transforms.RandomCrop(224),
         transforms.ToTensor(),
@@ -190,6 +189,7 @@ def get_data(data_path):
     test_dataset = CholecDataset(test_paths, test_labels, test_transforms)
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
+
 
 def test_model(test_dataset, test_num_each):
     num_test = len(test_dataset)
@@ -283,7 +283,7 @@ def test_model(test_dataset, test_num_each):
             outputs_2 = torch.mean(outputs_2, 0)
 
         # outputs_1 = outputs_1[sequence_length-1::sequence_length]
-        outputs_2 = outputs_2[sequence_length-1::sequence_length]
+        outputs_2 = outputs_2[sequence_length - 1::sequence_length]
 
         _, preds_2 = torch.max(outputs_2.data, 1)
 
@@ -307,8 +307,8 @@ def test_model(test_dataset, test_num_each):
     cor_count = 0
     for i in range(len(test_num_each)):
         for j in range(cor_count, cor_count + test_num_each[i] - (sequence_length - 1)):
-            if j==cor_count:
-                for k in range(sequence_length-1):
+            if j == cor_count:
+                for k in range(sequence_length - 1):
                     all_preds_1_cor.append(all_preds_1[sequence_length * j + k])
                     all_labels_1_cor.append(all_labels_1[sequence_length * j + k])
             all_preds_1_cor.append(all_preds_1[sequence_length * j + sequence_length - 1])
@@ -367,7 +367,9 @@ def test_model(test_dataset, test_num_each):
                   test_accuracy_1,
                   test_accuracy_2))
 
+
 print()
+
 
 def main():
     _, _, _, _, test_dataset, test_num_each = get_data('train_val_test_paths_labels.pkl')

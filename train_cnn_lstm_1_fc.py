@@ -367,6 +367,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         optimizer = optim.Adam([{'params': model.module.fc.parameters()},
                                 {'params': model.module.fc3.parameters()}], lr=learning_rate)
 
+
     best_val_accuracy_1 = 0.0
     best_val_accuracy_2 = 0.0  # judge by accu2
     correspond_train_acc_1 = 0.0

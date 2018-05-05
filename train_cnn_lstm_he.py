@@ -19,6 +19,7 @@ import copy
 from torchvision.transforms import Lambda
 import random
 
+
 parser = argparse.ArgumentParser(description='cnn_lstm_he Training')
 parser.add_argument('-g', '--gpu', default=[1], nargs='+', type=int, help='index of gpu to use, default 1')
 parser.add_argument('-s', '--seq', default=4, type=int, help='sequence length, default 4')

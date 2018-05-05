@@ -268,6 +268,7 @@ def test_model(test_dataset, test_num_each):
             inputs = Variable(inputs, volatile=True)
             labels = Variable(labels_2, volatile=True)
 
+
         if crop_type == 0 or crop_type == 1:
             outputs = model.forward(inputs)
         elif crop_type == 5:

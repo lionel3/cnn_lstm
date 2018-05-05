@@ -37,6 +37,7 @@ crop_type = args.crop
 model_pure_name, _ = os.path.splitext(model_name)
 pred_name = model_pure_name + '_pred_crop_' + str(crop_type) + '.pkl'
 
+
 num_gpu = torch.cuda.device_count()
 use_gpu = torch.cuda.is_available()
 

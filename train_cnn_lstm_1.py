@@ -537,6 +537,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
                       val_average_loss_2,
                       val_accuracy_2))
 
+
         if optimizer_choice == 0:
             if sgd_adjust_lr == 0:
                 exp_lr_scheduler.step()

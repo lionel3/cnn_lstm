@@ -164,6 +164,7 @@ def get_data(data_path):
 
     return train_dataset, train_num_each, val_dataset, val_num_each, test_dataset, test_num_each
 
+
 def test_model(test_dataset, test_num_each):
     num_test = len(test_dataset)
     test_idx = [i for i in range(num_test)]

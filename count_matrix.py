@@ -18,6 +18,7 @@ def main():
     print(train_labels[50000])
     print(train_labels[80000])
 
+
     # 转化为int64的numpy数组
     train_labels = np.asarray(train_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)

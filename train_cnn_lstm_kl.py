@@ -223,6 +223,7 @@ def get_data(data_path):
     val_labels = np.asarray(val_labels, dtype=np.int64)
     test_labels = np.asarray(test_labels, dtype=np.int64)
 
+
     if use_flip == 0:
         train_transforms = transforms.Compose([
             RandomCrop(224),

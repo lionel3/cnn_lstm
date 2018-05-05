@@ -53,6 +53,7 @@ print('num of workers  : {:6d}'.format(workers))
 print('test crop type  : {:6d}'.format(crop_type))
 print('whether to flip : {:6d}'.format(use_flip))
 
+
 def pil_loader(path):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
@@ -115,6 +116,7 @@ def get_useful_start_idx(sequence_length, list_each_length):
             idx.append(j)
         count += list_each_length[i]
     return idx
+
 
 def get_data(data_path):
     with open(data_path, 'rb') as f:
@@ -300,7 +302,6 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         train_accuracy = train_corrects / num_train / 7
         train_average_loss = train_loss / num_train / 7
 
-
         model.eval()
         val_loss = 0.0
         val_corrects = 0
@@ -382,7 +383,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     all_info.append(all_train_loss)
     all_info.append(all_val_accuracy)
     all_info.append(all_val_loss)
-    
+
     record_name = "tool" \
                   + "_epoch_" + str(epochs) \
                   + "_opt_" + str(optimizer_choice) \
@@ -397,9 +398,11 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
         pickle.dump(all_info, f)
     print()
 
+
 def main():
     train_dataset, train_num_each, val_dataset, val_num_each, _, _ = get_data('train_val_test_paths_labels.pkl')
     train_model(train_dataset, train_num_each, val_dataset, val_num_each)
+
 
 if __name__ == "__main__":
     main()

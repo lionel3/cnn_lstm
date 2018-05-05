@@ -346,6 +346,7 @@ def train_model(train_dataset, train_num_each, val_dataset, val_num_each):
     criterion_1 = nn.BCEWithLogitsLoss(size_average=False)
     criterion_2 = nn.CrossEntropyLoss(size_average=False)
 
+
     if multi_optim == 0:
         if optimizer_choice == 0:
             optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, dampening=dampening,
